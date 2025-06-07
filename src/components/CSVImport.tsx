@@ -1,6 +1,14 @@
 import React, { useRef, useState } from "react";
 import Papa from "papaparse";
-import { Upload, CheckCircle, AlertCircle, Info } from "lucide-react";
+import {
+  Upload,
+  CheckCircle,
+  AlertCircle,
+  Info,
+  X,
+  Check,
+  Shield,
+} from "lucide-react";
 import { supabase } from "../lib/supabase";
 
 interface CSVImportProps {
@@ -19,6 +27,20 @@ interface ColumnMapping {
   status?: string;
 }
 
+interface SuccessMessage {
+  imported: number;
+  excluded: number;
+  duplicates: number;
+}
+
+interface ProcessedTransaction {
+  date: string;
+  amount: number;
+  type: string;
+  merchant: string;
+  hash: string; // For duplicate detection
+}
+
 export const CSVImport: React.FC<CSVImportProps> = ({ onImportComplete }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [csvData, setCsvData] = useState<CSVRow[]>([]);
@@ -33,6 +55,9 @@ export const CSVImport: React.FC<CSVImportProps> = ({ onImportComplete }) => {
   const [showMapping, setShowMapping] = useState(false);
   const [importing, setImporting] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [successMessage, setSuccessMessage] = useState<SuccessMessage | null>(
+    null
+  );
 
   // Common column name patterns
   const columnPatterns = {
@@ -93,6 +118,124 @@ export const CSVImport: React.FC<CSVImportProps> = ({ onImportComplete }) => {
     return "";
   };
 
+  // Generate a hash for duplicate detection
+  const generateTransactionHash = (
+    transaction: ProcessedTransaction
+  ): string => {
+    // Normalize the date to YYYY-MM-DD format
+    const normalizedDate = new Date(transaction.date)
+      .toISOString()
+      .split("T")[0];
+
+    // Round amount to 2 decimal places to handle floating point precision
+    const normalizedAmount = Math.round(transaction.amount * 100) / 100;
+
+    // Normalize strings by trimming and converting to lowercase
+    const normalizedType = transaction.type.toLowerCase().trim();
+    const normalizedMerchant = transaction.merchant.toLowerCase().trim();
+
+    const hashString = `${normalizedDate}-${normalizedAmount}-${normalizedType}-${normalizedMerchant}`;
+
+    console.log("Generating hash for transaction:", {
+      original: {
+        date: transaction.date,
+        amount: transaction.amount,
+        type: transaction.type,
+        merchant: transaction.merchant,
+      },
+      normalized: {
+        date: normalizedDate,
+        amount: normalizedAmount,
+        type: normalizedType,
+        merchant: normalizedMerchant,
+      },
+      hashString,
+      hash: btoa(hashString),
+    });
+
+    return btoa(hashString); // Simple base64 encoding for hash
+  };
+
+  // Check for existing transactions to detect duplicates
+  const checkForDuplicates = async (transactions: ProcessedTransaction[]) => {
+    try {
+      console.log(
+        "Checking for duplicates among",
+        transactions.length,
+        "transactions"
+      );
+
+      // Get all existing transactions from the database
+      const { data: existingTransactions, error } = await supabase
+        .from("transactions")
+        .select("date, amount, type, merchant");
+
+      if (error) {
+        console.error("Error fetching existing transactions:", error);
+        return { newTransactions: transactions, duplicateCount: 0 };
+      }
+
+      console.log(
+        "Found",
+        existingTransactions?.length || 0,
+        "existing transactions in database"
+      );
+
+      if (!existingTransactions || existingTransactions.length === 0) {
+        console.log("No existing transactions, all are new");
+        return { newTransactions: transactions, duplicateCount: 0 };
+      }
+
+      // Create a set of hashes for existing transactions
+      const existingHashes = new Set(
+        existingTransactions.map((t) => {
+          const hash = generateTransactionHash({
+            date: t.date,
+            amount: t.amount,
+            type: t.type,
+            merchant: t.merchant,
+            hash: "",
+          });
+          console.log("Existing transaction hash:", hash, "for:", t);
+          return hash;
+        })
+      );
+
+      console.log(
+        "Generated",
+        existingHashes.size,
+        "unique hashes from existing transactions"
+      );
+      console.log("Existing hashes:", Array.from(existingHashes));
+
+      // Filter out duplicates
+      const newTransactions = transactions.filter((t) => {
+        const hash = generateTransactionHash(t);
+        const isDuplicate = existingHashes.has(hash);
+        console.log(
+          "Checking transaction:",
+          t,
+          "Hash:",
+          hash,
+          "Is duplicate:",
+          isDuplicate
+        );
+        return !isDuplicate;
+      });
+
+      const duplicateCount = transactions.length - newTransactions.length;
+
+      console.log(
+        `Duplicate check complete: ${duplicateCount} duplicates found out of ${transactions.length} total. ${newTransactions.length} new transactions to import.`
+      );
+
+      return { newTransactions, duplicateCount };
+    } catch (error) {
+      console.error("Error checking for duplicates:", error);
+      return { newTransactions: transactions, duplicateCount: 0 };
+    }
+  };
+
   const processFile = (file: File) => {
     if (!file.name.toLowerCase().endsWith(".csv")) {
       alert("Please select a CSV file.");
@@ -128,6 +271,7 @@ export const CSVImport: React.FC<CSVImportProps> = ({ onImportComplete }) => {
           setColumns(detectedColumns);
           setColumnMapping(autoMapping);
           setShowMapping(true);
+          setSuccessMessage(null); // Clear any previous success message
         } catch (error) {
           console.error("Error processing CSV:", error);
           alert("Error processing CSV file.");
@@ -208,7 +352,8 @@ export const CSVImport: React.FC<CSVImportProps> = ({ onImportComplete }) => {
         declinedCount = beforeFilter - filteredTransactions.length;
       }
 
-      const transactions = filteredTransactions
+      // Process transactions and prepare for duplicate checking
+      const processedTransactions: ProcessedTransaction[] = filteredTransactions
         .map((row) => {
           let amountValue = parseFloat(row[amount].replace(/[,$]/g, ""));
 
@@ -217,16 +362,20 @@ export const CSVImport: React.FC<CSVImportProps> = ({ onImportComplete }) => {
             amountValue = -Math.abs(amountValue);
           }
 
-          return {
+          const transaction: ProcessedTransaction = {
             date: row[date],
             amount: amountValue,
             type: row[type],
             merchant: row[merchant],
+            hash: "",
           };
+
+          transaction.hash = generateTransactionHash(transaction);
+          return transaction;
         })
         .filter((t) => !isNaN(t.amount));
 
-      if (transactions.length === 0) {
+      if (processedTransactions.length === 0) {
         alert(
           "No valid transactions found after processing. Please check your column mappings."
         );
@@ -234,23 +383,63 @@ export const CSVImport: React.FC<CSVImportProps> = ({ onImportComplete }) => {
         return;
       }
 
+      // Check for duplicates
+      const { newTransactions, duplicateCount } = await checkForDuplicates(
+        processedTransactions
+      );
+
+      if (newTransactions.length === 0) {
+        // Show custom message for all duplicates
+        setSuccessMessage({
+          imported: 0,
+          excluded: declinedCount,
+          duplicates: duplicateCount,
+        });
+
+        // Auto-hide message after 5 seconds
+        setTimeout(() => {
+          setSuccessMessage(null);
+          onImportComplete();
+          setShowMapping(false);
+          setCsvData([]);
+          setColumns([]);
+        }, 5000);
+
+        setImporting(false);
+        return;
+      }
+
+      // Insert only new transactions
+      const transactionsToInsert = newTransactions.map((t) => ({
+        date: t.date,
+        amount: t.amount,
+        type: t.type,
+        merchant: t.merchant,
+      }));
+
       const { error } = await supabase
         .from("transactions")
-        .insert(transactions);
+        .insert(transactionsToInsert);
 
       if (error) {
         console.error("Error inserting transactions:", error);
         alert("Error importing transactions. Please check the console.");
       } else {
-        let message = `Successfully imported ${transactions.length} transactions!`;
-        if (declinedCount > 0) {
-          message += ` (${declinedCount} declined transactions were excluded)`;
-        }
-        alert(message);
-        onImportComplete();
-        setShowMapping(false);
-        setCsvData([]);
-        setColumns([]);
+        // Show custom success message
+        setSuccessMessage({
+          imported: newTransactions.length,
+          excluded: declinedCount,
+          duplicates: duplicateCount,
+        });
+
+        // Auto-hide success message after 5 seconds
+        setTimeout(() => {
+          setSuccessMessage(null);
+          onImportComplete();
+          setShowMapping(false);
+          setCsvData([]);
+          setColumns([]);
+        }, 5000);
       }
     } catch (error) {
       console.error("Error processing transactions:", error);
@@ -271,6 +460,15 @@ export const CSVImport: React.FC<CSVImportProps> = ({ onImportComplete }) => {
       merchant: "",
       status: "",
     });
+    setSuccessMessage(null);
+  };
+
+  const dismissSuccess = () => {
+    setSuccessMessage(null);
+    onImportComplete();
+    setShowMapping(false);
+    setCsvData([]);
+    setColumns([]);
   };
 
   const getPreviewStats = () => {
@@ -299,6 +497,108 @@ export const CSVImport: React.FC<CSVImportProps> = ({ onImportComplete }) => {
     };
   };
 
+  // Success notification component
+  if (successMessage) {
+    const isAllDuplicates =
+      successMessage.imported === 0 && successMessage.duplicates > 0;
+
+    return (
+      <div className="bg-white p-6 rounded-lg shadow-md">
+        <div
+          className={`${
+            isAllDuplicates
+              ? "bg-yellow-50 border-yellow-200"
+              : "bg-green-50 border-green-200"
+          } border rounded-md p-6`}
+        >
+          <div className="flex items-start">
+            <div className="flex-shrink-0">
+              {isAllDuplicates ? (
+                <Shield className="h-6 w-6 text-yellow-600" />
+              ) : (
+                <Check className="h-6 w-6 text-green-600" />
+              )}
+            </div>
+            <div className="ml-3 flex-1">
+              <h3
+                className={`text-lg font-medium ${
+                  isAllDuplicates ? "text-yellow-800" : "text-green-800"
+                }`}
+              >
+                {isAllDuplicates
+                  ? "Duplicates Detected!"
+                  : "Import Successful!"}
+              </h3>
+              <div
+                className={`mt-2 text-sm ${
+                  isAllDuplicates ? "text-yellow-700" : "text-green-700"
+                }`}
+              >
+                {successMessage.imported > 0 && (
+                  <p className="mb-2">
+                    Successfully imported{" "}
+                    <span className="font-semibold">
+                      {successMessage.imported}
+                    </span>{" "}
+                    new transactions.
+                  </p>
+                )}
+                {successMessage.duplicates > 0 && (
+                  <p className="mb-2">
+                    <span className="font-semibold">
+                      {successMessage.duplicates}
+                    </span>{" "}
+                    duplicate transactions were skipped to prevent data
+                    duplication.
+                  </p>
+                )}
+                {successMessage.excluded > 0 && (
+                  <p className="mb-2">
+                    <span className="font-semibold">
+                      {successMessage.excluded}
+                    </span>{" "}
+                    declined transactions were excluded.
+                  </p>
+                )}
+                <p
+                  className={`text-xs ${
+                    isAllDuplicates ? "text-yellow-600" : "text-green-600"
+                  }`}
+                >
+                  This message will auto-close in 5 seconds...
+                </p>
+              </div>
+              <div className="mt-4">
+                <button
+                  onClick={dismissSuccess}
+                  className={`${
+                    isAllDuplicates
+                      ? "bg-yellow-600 hover:bg-yellow-700"
+                      : "bg-green-600 hover:bg-green-700"
+                  } text-white px-4 py-2 rounded-md text-sm font-medium transition-colors`}
+                >
+                  {isAllDuplicates ? "Continue" : "View Transactions"}
+                </button>
+              </div>
+            </div>
+            <div className="ml-4 flex-shrink-0">
+              <button
+                onClick={dismissSuccess}
+                className={`${
+                  isAllDuplicates
+                    ? "bg-yellow-50 text-yellow-400 hover:text-yellow-600 focus:ring-yellow-500"
+                    : "bg-green-50 text-green-400 hover:text-green-600 focus:ring-green-500"
+                } rounded-md p-1 focus:outline-none focus:ring-2`}
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (showMapping) {
     const stats = getPreviewStats();
 
@@ -309,6 +609,23 @@ export const CSVImport: React.FC<CSVImportProps> = ({ onImportComplete }) => {
           Found {csvData.length} rows. Please map your CSV columns to the
           required fields:
         </p>
+
+        {/* Duplicate Detection Info */}
+        <div className="bg-blue-50 border border-blue-200 rounded-md p-4 mb-6">
+          <div className="flex">
+            <Shield className="h-5 w-5 text-blue-400 mr-2 mt-0.5" />
+            <div>
+              <h3 className="text-sm font-medium text-blue-800">
+                Duplicate Protection Enabled
+              </h3>
+              <p className="text-sm text-blue-700 mt-1">
+                The system will automatically detect and skip duplicate
+                transactions based on date, amount, type, and merchant to
+                prevent importing the same data twice.
+              </p>
+            </div>
+          </div>
+        </div>
 
         {stats && stats.declined > 0 && (
           <div className="bg-yellow-50 border border-yellow-200 rounded-md p-4 mb-6">
@@ -321,7 +638,7 @@ export const CSVImport: React.FC<CSVImportProps> = ({ onImportComplete }) => {
                 <p className="text-sm text-yellow-700 mt-1">
                   {stats.declined} declined/rejected transactions will be
                   excluded.
-                  {stats.valid} valid transactions will be imported.
+                  {stats.valid} valid transactions will be processed.
                 </p>
               </div>
             </div>
@@ -466,6 +783,17 @@ export const CSVImport: React.FC<CSVImportProps> = ({ onImportComplete }) => {
         >
           Choose CSV File
         </label>
+      </div>
+
+      {/* Duplicate Protection Info */}
+      <div className="mt-4 bg-gray-50 border border-gray-200 rounded-md p-3">
+        <div className="flex items-center">
+          <Shield className="h-4 w-4 text-gray-500 mr-2" />
+          <p className="text-sm text-gray-600">
+            <span className="font-medium">Duplicate Protection:</span> The
+            system automatically prevents importing the same transactions twice.
+          </p>
+        </div>
       </div>
     </div>
   );

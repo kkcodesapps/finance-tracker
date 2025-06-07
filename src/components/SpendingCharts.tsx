@@ -9,6 +9,7 @@ import {
   ResponsiveContainer,
   LineChart,
   Line,
+  Cell,
 } from "recharts";
 import {
   format,
@@ -28,10 +29,12 @@ interface MonthlySpending {
 
 interface SpendingChartsProps {
   refreshKey?: number;
+  onMonthClick?: (month: string) => void;
 }
 
 export const SpendingCharts: React.FC<SpendingChartsProps> = ({
   refreshKey,
+  onMonthClick,
 }) => {
   const [monthlyData, setMonthlyData] = useState<MonthlySpending[]>([]);
   const [loading, setLoading] = useState(true);
@@ -150,6 +153,12 @@ export const SpendingCharts: React.FC<SpendingChartsProps> = ({
     }).format(value);
   };
 
+  const handleBarClick = (data: MonthlySpending) => {
+    if (data && data.month && onMonthClick) {
+      onMonthClick(data.month);
+    }
+  };
+
   if (loading) {
     return (
       <div className="bg-white p-6 rounded-lg shadow-md">
@@ -184,6 +193,10 @@ export const SpendingCharts: React.FC<SpendingChartsProps> = ({
             <p className="text-sm text-blue-700 mt-1">
               Positive amounts are treated as spending (charges). Negative
               amounts are credits/refunds. Payment transactions are excluded.
+              <span className="font-medium">
+                {" "}
+                Click on any bar to view detailed transactions for that month.
+              </span>
             </p>
           </div>
         </div>
@@ -199,10 +212,25 @@ export const SpendingCharts: React.FC<SpendingChartsProps> = ({
               <XAxis dataKey="month" />
               <YAxis tickFormatter={formatCurrency} />
               <Tooltip formatter={(value: number) => formatCurrency(value)} />
-              <Bar dataKey="spending" fill="#ef4444" name="Net Spending" />
+              <Bar
+                dataKey="spending"
+                name="Net Spending"
+                style={{ cursor: "pointer" }}
+              >
+                {monthlyData.map((entry, index) => (
+                  <Cell
+                    key={`cell-${index}`}
+                    fill="#ef4444"
+                    onClick={() => handleBarClick(entry)}
+                  />
+                ))}
+              </Bar>
             </BarChart>
           </ResponsiveContainer>
         </div>
+        <p className="text-xs text-gray-500 mt-2 text-center">
+          💡 Click on any bar to view detailed transactions for that month
+        </p>
       </div>
 
       {/* Spending Trend */}

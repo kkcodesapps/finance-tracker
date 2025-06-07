@@ -2,40 +2,36 @@ import React, { useState } from "react";
 import { CSVImport } from "./components/CSVImport";
 import { TransactionList } from "./components/TransactionList";
 import { SpendingCharts } from "./components/SpendingCharts";
-import { DollarSign, Upload, BarChart3, List, Trash2 } from "lucide-react";
+import { MonthlyDetail } from "./components/MonthlyDetail";
 import { supabase } from "./lib/supabase";
+import { Trash2, TrendingUp } from "lucide-react";
 
 function App() {
   const [activeTab, setActiveTab] = useState<
-    "import" | "transactions" | "charts"
+    "import" | "transactions" | "charts" | "monthly"
   >("import");
   const [refreshKey, setRefreshKey] = useState(0);
-  const [isDeleting, setIsDeleting] = useState(false);
+  const [selectedMonth, setSelectedMonth] = useState<string>("");
 
   const handleImportComplete = () => {
     setRefreshKey((prev) => prev + 1);
-    setActiveTab("transactions");
   };
 
-  const handleDeleteAllTransactions = async () => {
-    const confirmMessage =
-      "Are you sure you want to delete ALL transaction data? This action cannot be undone.";
+  const handleDeleteAllData = async () => {
+    const confirmed = window.confirm(
+      "Are you sure you want to delete ALL transaction data? This action cannot be undone."
+    );
 
-    if (!window.confirm(confirmMessage)) {
+    if (!confirmed) return;
+
+    const deleteConfirmation = window.prompt(
+      'Type "DELETE" to confirm you want to permanently delete all data:'
+    );
+
+    if (deleteConfirmation !== "DELETE") {
+      alert('Deletion cancelled. You must type "DELETE" exactly.');
       return;
     }
-
-    // Double confirmation for safety
-    const doubleConfirm =
-      'This will permanently delete all your financial data. Type "DELETE" to confirm:';
-    const userInput = window.prompt(doubleConfirm);
-
-    if (userInput !== "DELETE") {
-      alert('Deletion cancelled. You must type "DELETE" exactly to confirm.');
-      return;
-    }
-
-    setIsDeleting(true);
 
     try {
       const { error } = await supabase
@@ -44,83 +40,90 @@ function App() {
         .neq("id", "00000000-0000-0000-0000-000000000000"); // Delete all rows
 
       if (error) {
-        console.error("Error deleting transactions:", error);
-        alert("Error deleting transactions. Please check the console.");
+        console.error("Error deleting data:", error);
+        alert("Error deleting data. Please check the console.");
       } else {
-        alert("All transaction data has been successfully deleted.");
-        setRefreshKey((prev) => prev + 1); // Refresh all components
-        setActiveTab("import"); // Navigate back to import tab
+        alert("All transaction data has been deleted.");
+        setRefreshKey((prev) => prev + 1);
+        setActiveTab("import");
       }
     } catch (error) {
-      console.error("Error:", error);
-      alert("An error occurred while deleting transactions.");
-    } finally {
-      setIsDeleting(false);
+      console.error("Error deleting data:", error);
+      alert("Error deleting data.");
     }
   };
 
-  const tabs = [
-    { id: "import" as const, label: "Import CSV", icon: Upload },
-    { id: "transactions" as const, label: "Transactions", icon: List },
-    { id: "charts" as const, label: "Charts", icon: BarChart3 },
-  ];
+  const handleMonthClick = (month: string) => {
+    setSelectedMonth(month);
+    setActiveTab("monthly");
+  };
+
+  const handleBackToCharts = () => {
+    setActiveTab("charts");
+    setSelectedMonth("");
+  };
 
   return (
     <div className="min-h-screen bg-gray-100">
-      {/* Header */}
-      <header className="bg-white shadow-sm border-b">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
+      <div className="max-w-6xl mx-auto py-8 px-4">
+        {/* Header */}
+        <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+          <div className="flex items-center justify-between">
             <div className="flex items-center">
-              <DollarSign className="h-8 w-8 text-blue-600" />
-              <h1 className="ml-2 text-xl font-semibold text-gray-900">
+              <TrendingUp className="h-8 w-8 text-blue-600 mr-3" />
+              <h1 className="text-3xl font-bold text-gray-900">
                 Finance Tracker
               </h1>
             </div>
+            <button
+              onClick={handleDeleteAllData}
+              className="flex items-center bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg transition-colors"
+            >
+              <Trash2 className="h-4 w-4 mr-2" />
+              Delete All Data
+            </button>
+          </div>
+        </div>
 
-            {/* Delete All Button */}
-            <div className="flex items-center">
+        {/* Navigation Tabs */}
+        {activeTab !== "monthly" && (
+          <div className="bg-white rounded-lg shadow-md mb-6">
+            <div className="flex border-b">
               <button
-                onClick={handleDeleteAllTransactions}
-                disabled={isDeleting}
-                className="flex items-center px-3 py-2 text-sm font-medium text-red-600 hover:text-red-700 hover:bg-red-50 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                title="Delete all transaction data"
+                onClick={() => setActiveTab("import")}
+                className={`px-6 py-3 font-medium ${
+                  activeTab === "import"
+                    ? "text-blue-600 border-b-2 border-blue-600"
+                    : "text-gray-500 hover:text-gray-700"
+                }`}
               >
-                <Trash2 className="h-4 w-4 mr-1" />
-                {isDeleting ? "Deleting..." : "Delete All Data"}
+                Import CSV
+              </button>
+              <button
+                onClick={() => setActiveTab("transactions")}
+                className={`px-6 py-3 font-medium ${
+                  activeTab === "transactions"
+                    ? "text-blue-600 border-b-2 border-blue-600"
+                    : "text-gray-500 hover:text-gray-700"
+                }`}
+              >
+                Transactions
+              </button>
+              <button
+                onClick={() => setActiveTab("charts")}
+                className={`px-6 py-3 font-medium ${
+                  activeTab === "charts"
+                    ? "text-blue-600 border-b-2 border-blue-600"
+                    : "text-gray-500 hover:text-gray-700"
+                }`}
+              >
+                Charts
               </button>
             </div>
           </div>
-        </div>
-      </header>
+        )}
 
-      {/* Navigation Tabs */}
-      <nav className="bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex space-x-8">
-            {tabs.map((tab) => {
-              const Icon = tab.icon;
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`flex items-center px-3 py-4 text-sm font-medium border-b-2 transition-colors ${
-                    activeTab === tab.id
-                      ? "border-blue-500 text-blue-600"
-                      : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
-                  }`}
-                >
-                  <Icon className="h-4 w-4 mr-2" />
-                  {tab.label}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      </nav>
-
-      {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Tab Content */}
         {activeTab === "import" && (
           <CSVImport onImportComplete={handleImportComplete} />
         )}
@@ -129,8 +132,17 @@ function App() {
           <TransactionList refreshKey={refreshKey} />
         )}
 
-        {activeTab === "charts" && <SpendingCharts refreshKey={refreshKey} />}
-      </main>
+        {activeTab === "charts" && (
+          <SpendingCharts
+            refreshKey={refreshKey}
+            onMonthClick={handleMonthClick}
+          />
+        )}
+
+        {activeTab === "monthly" && selectedMonth && (
+          <MonthlyDetail month={selectedMonth} onBack={handleBackToCharts} />
+        )}
+      </div>
     </div>
   );
 }
