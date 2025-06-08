@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { CSVImport } from "./components/CSVImport";
+import { PDFImport } from "./components/PDFImport";
 import { TransactionList } from "./components/TransactionList";
 import { SpendingCharts } from "./components/SpendingCharts";
 import { MonthlyDetail } from "./components/MonthlyDetail";
@@ -8,7 +9,7 @@ import { Trash2, TrendingUp } from "lucide-react";
 
 function App() {
   const [activeTab, setActiveTab] = useState<
-    "import" | "transactions" | "charts" | "monthly"
+    "import" | "pdf" | "transactions" | "charts" | "monthly"
   >("import");
   const [refreshKey, setRefreshKey] = useState(0);
   const [selectedMonth, setSelectedMonth] = useState<string>("");
@@ -100,6 +101,16 @@ function App() {
                 Import CSV
               </button>
               <button
+                onClick={() => setActiveTab("pdf")}
+                className={`px-6 py-3 font-medium ${
+                  activeTab === "pdf"
+                    ? "text-blue-600 border-b-2 border-blue-600"
+                    : "text-gray-500 hover:text-gray-700"
+                }`}
+              >
+                Import PDF
+              </button>
+              <button
                 onClick={() => setActiveTab("transactions")}
                 className={`px-6 py-3 font-medium ${
                   activeTab === "transactions"
@@ -126,6 +137,10 @@ function App() {
         {/* Tab Content */}
         {activeTab === "import" && (
           <CSVImport onImportComplete={handleImportComplete} />
+        )}
+
+        {activeTab === "pdf" && (
+          <PDFImport onImportComplete={handleImportComplete} />
         )}
 
         {activeTab === "transactions" && (
