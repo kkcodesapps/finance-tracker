@@ -258,32 +258,11 @@ export const PDFImport: React.FC<PDFImportProps> = ({ onImportComplete }) => {
         type: "PRIVACY_COM",
       },
 
-      // Applecard transactions
-      {
-        pattern:
-          /(\d{1,2}\/\d{1,2})\s+(Applecard\s+[^$]+?)\s+\$?([+-]?\d+\.?\d{0,2})(?=\s+\d{1,2}\/\d{1,2}|\s+Total|\s*$)/g,
-        type: "APPLECARD",
-      },
-
-      // Robinhood transactions
-      {
-        pattern:
-          /(\d{1,2}\/\d{1,2})\s+(Robinhood\s+Debits\s+\d+\s+Web ID:\s+\d+)\s+\$?([+-]?[\d,]+\.?\d{0,2})(?=\s+\d{1,2}\/\d{1,2}|\s+Total|\s*$)/g,
-        type: "ROBINHOOD",
-      },
-
       // Tesla transactions
       {
         pattern:
           /(\d{1,2}\/\d{1,2})\s+(Tesla Motors\s+Tesla Moto\s+PPD ID:\s+\d+)\s+\$?([+-]?\d+\.?\d{0,2})(?=\s+\d{1,2}\/\d{1,2}|\s+Total|\s*$)/g,
         type: "TESLA",
-      },
-
-      // Chase Credit Card Autopay
-      {
-        pattern:
-          /(\d{1,2}\/\d{1,2})\s+(Chase Credit Crd Autopay\s+PPD ID:\s+\d+)\s+\$?([+-]?\d+\.?\d{0,2})(?=\s+\d{1,2}\/\d{1,2}|\s+Total|\s*$)/g,
-        type: "CHASE_AUTOPAY",
       },
     ];
 
@@ -373,8 +352,10 @@ export const PDFImport: React.FC<PDFImportProps> = ({ onImportComplete }) => {
       for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
         const page = await pdf.getPage(pageNum);
         const textContent = await page.getTextContent();
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const pageText = textContent.items
-          .map((item: any) => (item as { str: string }).str)
+          .filter((item): item is { str: string } => "str" in item)
+          .map((item) => item.str)
           .join(" ");
         fullText += pageText + "\n";
       }
