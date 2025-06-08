@@ -424,9 +424,9 @@ export const PDFImport: React.FC<PDFImportProps> = ({ onImportComplete }) => {
   const generateTransactionHash = (
     transaction: ExtractedTransaction
   ): string => {
-    const normalizedDate = new Date(transaction.date)
-      .toISOString()
-      .split("T")[0];
+    // Use the date string directly since it's already in YYYY-MM-DD format
+    // Avoid creating Date objects which can cause timezone issues
+    const normalizedDate = transaction.date;
     const normalizedAmount = Math.round(transaction.amount * 100) / 100;
     const normalizedDescription = transaction.description.toLowerCase().trim();
     const normalizedType = transaction.type.toLowerCase().trim();
@@ -453,7 +453,13 @@ export const PDFImport: React.FC<PDFImportProps> = ({ onImportComplete }) => {
 
       const existingHashes = new Set(
         existingTransactions.map((t) => {
-          const normalizedDate = new Date(t.date).toISOString().split("T")[0];
+          // Use the date string directly or ensure it's in YYYY-MM-DD format
+          // Avoid timezone issues when creating Date objects
+          let normalizedDate = t.date;
+          if (normalizedDate.includes("T")) {
+            // If it's a full timestamp, extract just the date part
+            normalizedDate = normalizedDate.split("T")[0];
+          }
           const normalizedAmount = Math.round(t.amount * 100) / 100;
           const normalizedType = t.type.toLowerCase().trim();
           const normalizedMerchant = t.merchant.toLowerCase().trim();
