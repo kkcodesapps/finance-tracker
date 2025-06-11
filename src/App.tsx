@@ -4,12 +4,20 @@ import { PDFImport } from "./components/PDFImport";
 import { TransactionList } from "./components/TransactionList";
 import { SpendingCharts } from "./components/SpendingCharts";
 import { MonthlyDetail } from "./components/MonthlyDetail";
+import { SubscriptionTracker } from "./components/SubscriptionTracker";
+import { RecurringExpenses } from "./components/RecurringExpenses";
 import { supabase } from "./lib/supabase";
 import { Trash2, TrendingUp } from "lucide-react";
 
 function App() {
   const [activeTab, setActiveTab] = useState<
-    "import" | "pdf" | "transactions" | "charts" | "monthly"
+    | "import"
+    | "pdf"
+    | "transactions"
+    | "charts"
+    | "subscriptions"
+    | "recurring"
+    | "monthly"
   >("import");
   const [refreshKey, setRefreshKey] = useState(0);
   const [selectedMonth, setSelectedMonth] = useState<string>("");
@@ -130,6 +138,26 @@ function App() {
               >
                 Charts
               </button>
+              <button
+                onClick={() => setActiveTab("subscriptions")}
+                className={`px-6 py-3 font-medium ${
+                  activeTab === "subscriptions"
+                    ? "text-blue-600 border-b-2 border-blue-600"
+                    : "text-gray-500 hover:text-gray-700"
+                }`}
+              >
+                Subscriptions
+              </button>
+              <button
+                onClick={() => setActiveTab("recurring")}
+                className={`px-6 py-3 font-medium ${
+                  activeTab === "recurring"
+                    ? "text-blue-600 border-b-2 border-blue-600"
+                    : "text-gray-500 hover:text-gray-700"
+                }`}
+              >
+                Recurring Expenses
+              </button>
             </div>
           </div>
         )}
@@ -153,6 +181,10 @@ function App() {
             onMonthClick={handleMonthClick}
           />
         )}
+
+        {activeTab === "subscriptions" && <SubscriptionTracker />}
+
+        {activeTab === "recurring" && <RecurringExpenses />}
 
         {activeTab === "monthly" && selectedMonth && (
           <MonthlyDetail month={selectedMonth} onBack={handleBackToCharts} />

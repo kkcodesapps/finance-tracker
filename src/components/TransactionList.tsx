@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { format } from "date-fns";
+import { Search, X } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import type { Transaction } from "../lib/supabase";
 
@@ -12,6 +12,8 @@ export const TransactionList: React.FC<TransactionListProps> = ({
 }) => {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [selectedMonth, setSelectedMonth] = useState("");
 
   useEffect(() => {
     fetchTransactions();
@@ -77,6 +79,80 @@ export const TransactionList: React.FC<TransactionListProps> = ({
     }
   };
 
+  // Get unique months from transactions for the filter dropdown
+  const getUniqueMonths = () => {
+    const months = transactions.map((transaction) => {
+      let dateStr = transaction.date;
+      if (dateStr.includes("T")) {
+        dateStr = dateStr.split("T")[0];
+      }
+      const [year, month] = dateStr.split("-");
+      const monthNames = [
+        "Jan",
+        "Feb",
+        "Mar",
+        "Apr",
+        "May",
+        "Jun",
+        "Jul",
+        "Aug",
+        "Sep",
+        "Oct",
+        "Nov",
+        "Dec",
+      ];
+      return {
+        value: `${year}-${month}`,
+        label: `${monthNames[parseInt(month) - 1]} ${year}`,
+      };
+    });
+
+    // Remove duplicates and sort by date (newest first)
+    const uniqueMonths = Array.from(
+      new Map(months.map((m) => [m.value, m])).values()
+    ).sort((a, b) => b.value.localeCompare(a.value));
+
+    return uniqueMonths;
+  };
+
+  // Filter transactions based on search term and selected month
+  const filteredTransactions = transactions.filter((transaction) => {
+    // Month filter
+    if (selectedMonth) {
+      let dateStr = transaction.date;
+      if (dateStr.includes("T")) {
+        dateStr = dateStr.split("T")[0];
+      }
+      const [year, month] = dateStr.split("-");
+      const transactionMonth = `${year}-${month}`;
+      if (transactionMonth !== selectedMonth) {
+        return false;
+      }
+    }
+
+    // Search filter
+    if (!searchTerm.trim()) return true;
+
+    const search = searchTerm.toLowerCase();
+    const merchant = transaction.merchant.toLowerCase();
+    const type = transaction.type.toLowerCase();
+    const amount = transaction.amount.toString();
+
+    return (
+      merchant.includes(search) ||
+      type.includes(search) ||
+      amount.includes(search)
+    );
+  });
+
+  const clearSearch = () => {
+    setSearchTerm("");
+  };
+
+  const clearMonth = () => {
+    setSelectedMonth("");
+  };
+
   if (loading) {
     return (
       <div className="bg-white p-6 rounded-lg shadow-md">
@@ -94,13 +170,121 @@ export const TransactionList: React.FC<TransactionListProps> = ({
 
   return (
     <div className="bg-white p-6 rounded-lg shadow-md">
-      <h2 className="text-xl font-semibold mb-4">
-        Transactions ({transactions.length})
-      </h2>
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-xl font-semibold">
+          Transactions ({filteredTransactions.length}
+          {searchTerm && transactions.length !== filteredTransactions.length
+            ? ` of ${transactions.length}`
+            : ""}
+          )
+        </h2>
+        {transactions.length > 0 &&
+          (() => {
+            // Filter out payment transactions for spending calculation
+            const spendingTransactions = filteredTransactions.filter(
+              (t) => t.type.toLowerCase() !== "payment"
+            );
+            const totalSpending = spendingTransactions.reduce(
+              (sum, t) => sum + Math.abs(t.amount),
+              0
+            );
+
+            return (
+              <div className="flex items-center bg-red-50 px-4 py-2 rounded-lg">
+                <span className="text-sm text-red-600 mr-2">
+                  Total Spending:
+                </span>
+                <span className="text-lg font-semibold text-red-800">
+                  {new Intl.NumberFormat("en-US", {
+                    style: "currency",
+                    currency: "USD",
+                  }).format(totalSpending)}
+                </span>
+              </div>
+            );
+          })()}
+      </div>
+
+      {/* Search and Filter Bar */}
+      {transactions.length > 0 && (
+        <div className="mb-4 space-y-4">
+          {/* Search Input */}
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Search by merchant, type, or amount..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-10 pr-10 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+            />
+            {searchTerm && (
+              <button
+                onClick={clearSearch}
+                className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+
+          {/* Month Filter */}
+          <div className="flex items-center space-x-4">
+            <div className="flex-1">
+              <select
+                value={selectedMonth}
+                onChange={(e) => setSelectedMonth(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value="">All Months</option>
+                {getUniqueMonths().map((month) => (
+                  <option key={month.value} value={month.value}>
+                    {month.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {selectedMonth && (
+              <button
+                onClick={clearMonth}
+                className="px-3 py-2 text-sm text-gray-600 hover:text-gray-800 border border-gray-300 rounded-md hover:bg-gray-50"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+
+          {/* Filter Status */}
+          {(searchTerm || selectedMonth) && (
+            <p className="text-sm text-gray-600">
+              {filteredTransactions.length === 0
+                ? "No transactions found matching your filters."
+                : `Showing ${filteredTransactions.length} transaction${
+                    filteredTransactions.length !== 1 ? "s" : ""
+                  } 
+                   ${searchTerm ? `matching "${searchTerm}"` : ""}
+                   ${searchTerm && selectedMonth ? " in " : ""}
+                   ${
+                     selectedMonth
+                       ? `${
+                           getUniqueMonths().find(
+                             (m) => m.value === selectedMonth
+                           )?.label
+                         }`
+                       : ""
+                   }`}
+            </p>
+          )}
+        </div>
+      )}
 
       {transactions.length === 0 ? (
         <p className="text-gray-500 text-center py-8">
           No transactions found. Import a CSV file to get started.
+        </p>
+      ) : filteredTransactions.length === 0 ? (
+        <p className="text-gray-500 text-center py-8">
+          No transactions match your search criteria.
         </p>
       ) : (
         <div className="overflow-x-auto">
@@ -122,10 +306,34 @@ export const TransactionList: React.FC<TransactionListProps> = ({
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {transactions.map((transaction) => (
+              {filteredTransactions.map((transaction) => (
                 <tr key={transaction.id} className="hover:bg-gray-50">
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {format(new Date(transaction.date), "MMM dd, yyyy")}
+                    {(() => {
+                      // Handle date string directly to avoid timezone issues
+                      let dateStr = transaction.date;
+                      if (dateStr.includes("T")) {
+                        dateStr = dateStr.split("T")[0]; // Extract date part if it's a timestamp
+                      }
+                      const [year, month, day] = dateStr.split("-");
+                      const monthNames = [
+                        "Jan",
+                        "Feb",
+                        "Mar",
+                        "Apr",
+                        "May",
+                        "Jun",
+                        "Jul",
+                        "Aug",
+                        "Sep",
+                        "Oct",
+                        "Nov",
+                        "Dec",
+                      ];
+                      return `${monthNames[parseInt(month) - 1]} ${parseInt(
+                        day
+                      )}, ${year}`;
+                    })()}
                   </td>
                   <td className="px-6 py-4 text-sm text-gray-900 break-words">
                     {transaction.merchant}

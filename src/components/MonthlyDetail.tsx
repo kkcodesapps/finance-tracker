@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { format, startOfMonth, endOfMonth } from "date-fns";
+import { startOfMonth, endOfMonth } from "date-fns";
 import { ArrowLeft, Calendar, DollarSign } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import type { Transaction } from "../lib/supabase";
@@ -37,32 +37,47 @@ export const MonthlyDetail: React.FC<MonthlyDetailProps> = ({
       const monthStart = startOfMonth(monthDate);
       const monthEnd = endOfMonth(monthDate);
 
-      const { data: transactions, error } = await supabase
+      // Fetch ALL transactions first (same as SpendingCharts)
+      const { data: allTransactions, error } = await supabase
         .from("transactions")
         .select("*")
-        .gte("date", monthStart.toISOString().split("T")[0])
-        .lte("date", monthEnd.toISOString().split("T")[0])
         .order("date", { ascending: false });
 
       if (error) {
-        console.error("Error fetching monthly transactions:", error);
+        console.error("Error fetching transactions:", error);
         return;
       }
 
-      if (!transactions) {
+      if (!allTransactions) {
         setLoading(false);
         return;
       }
 
-      // Filter out payment transactions
-      const filteredTransactions = transactions.filter(
+      // Filter out payment transactions first (same as SpendingCharts)
+      const filteredTransactions = allTransactions.filter(
         (t) => t.type.toLowerCase() !== "payment"
       );
+
+      // Use same parseDate function as SpendingCharts for consistency
+      const parseDate = (dateStr: string): Date => {
+        let cleanDateStr = dateStr;
+        if (dateStr.includes("T")) {
+          cleanDateStr = dateStr.split("T")[0];
+        }
+        const [year, month, day] = cleanDateStr.split("-").map(Number);
+        return new Date(year, month - 1, day); // month is 0-indexed in Date constructor
+      };
+
+      // Filter transactions for this specific month (same logic as SpendingCharts)
+      const monthTransactions = filteredTransactions.filter((t) => {
+        const transactionDate = parseDate(t.date);
+        return transactionDate >= monthStart && transactionDate <= monthEnd;
+      });
 
       // Group transactions by merchant
       const merchantMap = new Map<string, MerchantGroup>();
 
-      filteredTransactions.forEach((transaction) => {
+      monthTransactions.forEach((transaction) => {
         const merchant = transaction.merchant;
 
         if (merchantMap.has(merchant)) {
@@ -136,10 +151,25 @@ export const MonthlyDetail: React.FC<MonthlyDetailProps> = ({
     }
   };
 
-  const totalSpending = merchantGroups.reduce(
-    (sum, group) => sum + Math.abs(group.totalAmount),
-    0
-  );
+  // Calculate total spending using the same logic as SpendingCharts
+  // Positive amounts are spending, negative amounts are credits/refunds
+  const calculateTotalSpending = () => {
+    const allTransactions = merchantGroups.flatMap(
+      (group) => group.transactions
+    );
+
+    const spending = allTransactions
+      .filter((t) => t.amount > 0) // Positive amounts are spending
+      .reduce((sum, t) => sum + t.amount, 0);
+
+    const credits = allTransactions
+      .filter((t) => t.amount < 0) // Negative amounts are credits/refunds
+      .reduce((sum, t) => sum + Math.abs(t.amount), 0);
+
+    return spending - credits; // Net spending
+  };
+
+  const totalSpending = calculateTotalSpending();
 
   if (loading) {
     return (
@@ -265,7 +295,31 @@ export const MonthlyDetail: React.FC<MonthlyDetailProps> = ({
                           >
                             <div className="flex items-center space-x-3">
                               <span className="text-sm text-gray-600">
-                                {format(new Date(transaction.date), "MMM dd")}
+                                {(() => {
+                                  // Handle date string directly to avoid timezone issues
+                                  let dateStr = transaction.date;
+                                  if (dateStr.includes("T")) {
+                                    dateStr = dateStr.split("T")[0];
+                                  }
+                                  const [, month, day] = dateStr.split("-");
+                                  const monthNames = [
+                                    "Jan",
+                                    "Feb",
+                                    "Mar",
+                                    "Apr",
+                                    "May",
+                                    "Jun",
+                                    "Jul",
+                                    "Aug",
+                                    "Sep",
+                                    "Oct",
+                                    "Nov",
+                                    "Dec",
+                                  ];
+                                  return `${
+                                    monthNames[parseInt(month) - 1]
+                                  } ${parseInt(day)}`;
+                                })()}
                               </span>
                               <span
                                 className={`inline-flex px-2 py-0.5 text-xs font-medium rounded ${getTypeChipColor(

@@ -169,45 +169,64 @@ export const PDFImport: React.FC<PDFImportProps> = ({ onImportComplete }) => {
 
     console.log("Original PDF text:", text);
 
-    // Split text into ATM and Electronic sections
-    const atmSectionMatch = text.match(
-      /ATM & DEBIT CARD WITHDRAWALS[\s\S]*?(?=ELECTRONIC WITHDRAWALS|Total ATM)/
-    );
-    const electronicSectionMatch = text.match(
-      /ELECTRONIC WITHDRAWALS[\s\S]*?(?=Total Electronic|IN CASE OF ERRORS)/
-    );
+    // Detect if this is an Amazon credit card statement
+    const isAmazonStatement =
+      text.includes("Date of Transaction") &&
+      text.includes("Merchant Name or Transaction Description") &&
+      (text.includes("AMAZON MKTPL") ||
+        text.includes("Amazon.com") ||
+        text.includes("AMAZON PRIME"));
 
-    console.log("ATM section found:", !!atmSectionMatch);
-    console.log("Electronic section found:", !!electronicSectionMatch);
+    if (isAmazonStatement) {
+      console.log("Detected Amazon credit card statement");
 
-    // Process ATM section
-    if (atmSectionMatch) {
-      const atmSection = atmSectionMatch[0];
-      console.log("Processing ATM section:", atmSection);
+      // For Amazon statements, extract transactions directly from the full text
+      const amazonTransactions = extractAmazonTransactions(text);
+      transactions.push(...amazonTransactions);
+      console.log(`Found ${amazonTransactions.length} Amazon transactions`);
+    } else {
+      // Chase bank statement format
+      console.log("Detected Chase bank statement format");
 
-      const atmTransactions = extractATMTransactions(atmSection);
-      transactions.push(...atmTransactions);
-      console.log(`Found ${atmTransactions.length} ATM transactions`);
-    }
-
-    // Process Electronic section
-    if (electronicSectionMatch) {
-      const electronicSection = electronicSectionMatch[0];
-      console.log("Processing Electronic section:", electronicSection);
-
-      const electronicTransactions =
-        extractElectronicTransactions(electronicSection);
-      transactions.push(...electronicTransactions);
-      console.log(
-        `Found ${electronicTransactions.length} Electronic transactions`
+      // Split text into ATM and Electronic sections
+      const atmSectionMatch = text.match(
+        /ATM & DEBIT CARD WITHDRAWALS[\s\S]*?(?=ELECTRONIC WITHDRAWALS|Total ATM)/
       );
+      const electronicSectionMatch = text.match(
+        /ELECTRONIC WITHDRAWALS[\s\S]*?(?=Total Electronic|IN CASE OF ERRORS)/
+      );
+
+      console.log("ATM section found:", !!atmSectionMatch);
+      console.log("Electronic section found:", !!electronicSectionMatch);
+
+      // Process ATM section
+      if (atmSectionMatch) {
+        const atmSection = atmSectionMatch[0];
+        console.log("Processing ATM section:", atmSection);
+
+        const atmTransactions = extractATMTransactions(atmSection);
+        transactions.push(...atmTransactions);
+        console.log(`Found ${atmTransactions.length} ATM transactions`);
+      }
+
+      // Process Electronic section
+      if (electronicSectionMatch) {
+        const electronicSection = electronicSectionMatch[0];
+        console.log("Processing Electronic section:", electronicSection);
+
+        const electronicTransactions =
+          extractElectronicTransactions(electronicSection);
+        transactions.push(...electronicTransactions);
+        console.log(
+          `Found ${electronicTransactions.length} Electronic transactions`
+        );
+      }
     }
 
     console.log("All extracted transactions:", transactions);
 
-    return transactions.sort(
-      (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
-    );
+    // Sort by date string directly to avoid timezone issues with Date objects
+    return transactions.sort((a, b) => a.date.localeCompare(b.date));
   };
 
   const extractATMTransactions = (
@@ -243,6 +262,102 @@ export const PDFImport: React.FC<PDFImportProps> = ({ onImportComplete }) => {
     return transactions;
   };
 
+  const extractAmazonTransactions = (text: string): ExtractedTransaction[] => {
+    const transactions: ExtractedTransaction[] = [];
+
+    // Amazon transaction patterns - adjusted for the actual PDF format
+    // The format appears to be: MM/DD DESCRIPTION Amount Order Number XXX-XXXXXXX-XXXXXXX
+    const amazonPatterns = [
+      // Amazon Marketplace transactions
+      {
+        pattern:
+          /(\d{1,2}\/\d{1,2})\s+(AMAZON MKTPL\*[A-Z0-9]+)\s+Amzn\.com\/bill WA\s+([0-9.]+)\s+Order Number\s+(\d{3}-\d{7}-\d{7})/g,
+        type: "AMAZON_MARKETPLACE",
+      },
+
+      // Amazon.com direct transactions
+      {
+        pattern:
+          /(\d{1,2}\/\d{1,2})\s+(Amazon\.com\*[A-Z0-9]+)\s+Amzn\.com\/bill WA\s+([0-9.]+)\s+Order Number\s+(\d{3}-\d{7}-\d{7})/g,
+        type: "AMAZON_DIRECT",
+      },
+
+      // Amazon Prime transactions
+      {
+        pattern:
+          /(\d{1,2}\/\d{1,2})\s+(AMAZON PRIME\*[A-Z0-9]+)\s+Amzn\.com\/bill WA\s+([0-9.]+)\s+Order Number\s+([A-Z0-9-]+)/g,
+        type: "AMAZON_PRIME",
+      },
+    ];
+
+    for (const { pattern, type } of amazonPatterns) {
+      let match;
+      while ((match = pattern.exec(text)) !== null) {
+        const [, date, description, amountStr] = match;
+
+        console.log(`${type} transaction match:`, {
+          date,
+          description,
+          amountStr,
+        });
+
+        const amount = parseAmount(amountStr);
+
+        if (amount !== 0 && description && description.trim().length > 2) {
+          const normalizedDate = normalizeDate(date);
+          let cleanDescription = description.trim();
+
+          // Clean up Amazon descriptions
+          if (type === "AMAZON_MARKETPLACE") {
+            cleanDescription = cleanDescription.replace(
+              /AMAZON MKTPL\*[A-Z0-9]+/,
+              "Amazon Marketplace"
+            );
+          } else if (type === "AMAZON_DIRECT") {
+            cleanDescription = cleanDescription.replace(
+              /Amazon\.com\*[A-Z0-9]+/,
+              "Amazon"
+            );
+          } else if (type === "AMAZON_PRIME") {
+            cleanDescription = cleanDescription.replace(
+              /AMAZON PRIME\*[A-Z0-9]+/,
+              "Amazon Prime"
+            );
+          }
+
+          const transactionType = determineTransactionType(
+            cleanDescription,
+            amount
+          );
+
+          // Check if this exact transaction already exists
+          const exists = transactions.some(
+            (t) =>
+              t.date === normalizedDate &&
+              Math.abs(t.amount - amount) < 0.01 &&
+              t.description.toLowerCase() === cleanDescription.toLowerCase()
+          );
+
+          if (!exists) {
+            transactions.push({
+              date: normalizedDate,
+              amount,
+              description: cleanDescription,
+              type: transactionType,
+            });
+          } else {
+            console.log(`Skipping duplicate: ${cleanDescription} - ${amount}`);
+          }
+        }
+      }
+
+      // Reset regex for next pattern
+      pattern.lastIndex = 0;
+    }
+
+    return transactions;
+  };
+
   const extractElectronicTransactions = (
     electronicSection: string
   ): ExtractedTransaction[] => {
@@ -263,6 +378,27 @@ export const PDFImport: React.FC<PDFImportProps> = ({ onImportComplete }) => {
         pattern:
           /(\d{1,2}\/\d{1,2})\s+(Tesla Motors\s+Tesla Moto\s+PPD ID:\s+\d+)\s+\$?([+-]?\d+\.?\d{0,2})(?=\s+\d{1,2}\/\d{1,2}|\s+Total|\s*$)/g,
         type: "TESLA",
+      },
+
+      // Amazon Marketplace transactions
+      {
+        pattern:
+          /(\d{1,2}\/\d{1,2})\s+(AMAZON MKTPL\*[A-Z0-9]+.*?Amzn\.com\/bill WA.*?Order Number \d{3}-\d{7}-\d{7})\s+([+-]?\d+\.?\d{1,2})(?=\s+\d{1,2}\/\d{1,2}|\s*$)/g,
+        type: "AMAZON_MARKETPLACE",
+      },
+
+      // Amazon.com direct transactions
+      {
+        pattern:
+          /(\d{1,2}\/\d{1,2})\s+(Amazon\.com\*[A-Z0-9]+.*?Amzn\.com\/bill WA.*?Order Number \d{3}-\d{7}-\d{7})\s+([+-]?\d+\.?\d{1,2})(?=\s+\d{1,2}\/\d{1,2}|\s*$)/g,
+        type: "AMAZON_DIRECT",
+      },
+
+      // Amazon Prime transactions
+      {
+        pattern:
+          /(\d{1,2}\/\d{1,2})\s+(AMAZON PRIME\*[A-Z0-9]+.*?Amzn\.com\/bill WA.*?Order Number [A-Z0-9-]+)\s+([+-]?\d+\.?\d{1,2})(?=\s+\d{1,2}\/\d{1,2}|\s*$)/g,
+        type: "AMAZON_PRIME",
       },
     ];
 
@@ -298,6 +434,41 @@ export const PDFImport: React.FC<PDFImportProps> = ({ onImportComplete }) => {
             cleanDescription = cleanDescription
               .replace(/\s+TN:\s+\d+.*?Web ID:\s+\d+/g, "")
               .trim();
+          }
+
+          // For Amazon transactions, clean up the description to extract meaningful merchant info
+          if (type.startsWith("AMAZON")) {
+            // Extract the main Amazon service/type and remove order details
+            if (type === "AMAZON_MARKETPLACE") {
+              cleanDescription = cleanDescription.replace(
+                /AMAZON MKTPL\*[A-Z0-9]+\s+/,
+                "Amazon Marketplace - "
+              );
+            } else if (type === "AMAZON_DIRECT") {
+              cleanDescription = cleanDescription.replace(
+                /Amazon\.com\*[A-Z0-9]+\s+/,
+                "Amazon - "
+              );
+            } else if (type === "AMAZON_PRIME") {
+              cleanDescription = cleanDescription.replace(
+                /AMAZON PRIME\*[A-Z0-9]+\s+/,
+                "Amazon Prime - "
+              );
+            }
+
+            // Remove the Amzn.com/bill WA and Order Number parts
+            cleanDescription = cleanDescription
+              .replace(/\s+Amzn\.com\/bill WA.*?Order Number.*$/g, "")
+              .trim();
+
+            // If description is too short after cleanup, use a generic name
+            if (cleanDescription.length < 5) {
+              if (type === "AMAZON_PRIME") {
+                cleanDescription = "Amazon Prime";
+              } else {
+                cleanDescription = "Amazon";
+              }
+            }
           }
 
           const transactionType = determineTransactionType(
@@ -352,10 +523,13 @@ export const PDFImport: React.FC<PDFImportProps> = ({ onImportComplete }) => {
       for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
         const page = await pdf.getPage(pageNum);
         const textContent = await page.getTextContent();
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        // Extract text items safely without complex type predicates
         const pageText = textContent.items
-          .filter((item): item is { str: string } => "str" in item)
-          .map((item) => item.str)
+          .map((item) => {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            return (item as any).str || "";
+          })
+          .filter((str) => str.length > 0)
           .join(" ");
         fullText += pageText + "\n";
       }
