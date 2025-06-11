@@ -93,16 +93,127 @@ export const PDFImport: React.FC<PDFImportProps> = ({ onImportComplete }) => {
     return result;
   };
 
-  const normalizeDate = (dateStr: string): string => {
+  const normalizeDate = (dateStr: string, pdfText?: string): string => {
+    console.log("=== NORMALIZE DATE DEBUG ===");
+    console.log("Input dateStr:", dateStr);
+    console.log("Has pdfText:", !!pdfText);
+
     const currentYear = new Date().getFullYear();
+    const currentMonth = new Date().getMonth() + 1; // getMonth() returns 0-11
+    console.log("Current year:", currentYear, "Current month:", currentMonth);
+
+    // Try to extract statement period from PDF text if available
+    let statementYear = currentYear;
+    let statementMonth = currentMonth;
+
+    if (pdfText) {
+      console.log("Analyzing PDF text for statement period...");
+
+      // Look for statement period indicators in Amazon statements
+      const amazonStatementPattern =
+        /Statement Period:\s*(\d{1,2})\/(\d{1,2})\/(\d{4})\s*-\s*(\d{1,2})\/(\d{1,2})\/(\d{4})/;
+      const amazonMatch = pdfText.match(amazonStatementPattern);
+
+      if (amazonMatch) {
+        const [, , , , endMonth, , endYear] = amazonMatch;
+        statementYear = parseInt(endYear);
+        statementMonth = parseInt(endMonth);
+        console.log(
+          `✅ Detected Amazon statement period ending: ${statementMonth}/${statementYear}`
+        );
+      } else {
+        console.log("❌ No Amazon 'Statement Period:' pattern found");
+
+        // Look for other date patterns that might indicate the statement period
+        console.log("Searching for alternative date patterns...");
+
+        // Look for statement closing date patterns
+        const closingDatePattern =
+          /Statement Closing Date:\s*(\d{1,2})\/(\d{1,2})\/(\d{4})/;
+        const closingMatch = pdfText.match(closingDatePattern);
+
+        if (closingMatch) {
+          const [, month, , year] = closingMatch;
+          statementYear = parseInt(year);
+          statementMonth = parseInt(month);
+          console.log(
+            `✅ Found Statement Closing Date: ${statementMonth}/${statementYear}`
+          );
+        } else {
+          console.log("❌ No 'Statement Closing Date:' pattern found");
+
+          // Look for Opening/Closing Date pattern in Amazon Chase statements
+          const openingClosingPattern =
+            /Opening\/Closing Date\s+(\d{1,2})\/(\d{1,2})\/(\d{2,4})\s*-\s*(\d{1,2})\/(\d{1,2})\/(\d{2,4})/;
+          const openingClosingMatch = pdfText.match(openingClosingPattern);
+
+          if (openingClosingMatch) {
+            const [, , , , endMonth, , endYear] = openingClosingMatch;
+            // Convert 2-digit year to 4-digit if needed
+            const fullEndYear =
+              endYear.length === 2
+                ? parseInt(endYear) > 50
+                  ? `19${endYear}`
+                  : `20${endYear}`
+                : endYear;
+            statementYear = parseInt(fullEndYear);
+            statementMonth = parseInt(endMonth);
+            console.log(
+              `✅ Found Opening/Closing Date: ${statementMonth}/${statementYear}`
+            );
+          } else {
+            console.log("❌ No 'Opening/Closing Date' pattern found");
+
+            // Look for any date patterns in the PDF
+            const datePatterns = [
+              /(\d{1,2})\/(\d{1,2})\/(\d{4})/g, // MM/DD/YYYY
+              /(\w+)\s+(\d{4})/g, // Month YYYY
+            ];
+
+            for (const pattern of datePatterns) {
+              const matches = [...pdfText.matchAll(pattern)];
+              console.log(
+                `Found ${matches.length} dates with pattern:`,
+                pattern.source
+              );
+
+              if (matches.length > 0) {
+                // Use the most recent date found as likely statement date
+                const lastMatch = matches[matches.length - 1];
+                if (lastMatch.length === 4) {
+                  // MM/DD/YYYY format
+                  statementYear = parseInt(lastMatch[3]);
+                  statementMonth = parseInt(lastMatch[1]);
+                  console.log(
+                    `✅ Using last found date: ${statementMonth}/${statementYear}`
+                  );
+                }
+                break;
+              }
+            }
+          }
+        }
+      }
+    } else {
+      console.log("⚠️ No PDF text provided for context");
+    }
+
+    console.log("Final statement context:", { statementYear, statementMonth });
 
     for (const pattern of datePatterns) {
       const match = dateStr.match(pattern);
       if (match) {
+        console.log("Matched pattern:", pattern.source, "with result:", match);
+
         if (pattern.source.includes("YYYY")) {
           // YYYY-MM-DD format
           const [, year, month, day] = match;
-          return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+          const result = `${year}-${month.padStart(2, "0")}-${day.padStart(
+            2,
+            "0"
+          )}`;
+          console.log("✅ Full year format result:", result);
+          return result;
         } else if (match.length === 4) {
           // MM/DD/YYYY or MM/DD/YY
           const [, month, day, year] = match;
@@ -112,21 +223,67 @@ export const PDFImport: React.FC<PDFImportProps> = ({ onImportComplete }) => {
                 ? `19${year}`
                 : `20${year}`
               : year;
-          return `${fullYear}-${month.padStart(2, "0")}-${day.padStart(
+          const result = `${fullYear}-${month.padStart(2, "0")}-${day.padStart(
             2,
             "0"
           )}`;
+          console.log("✅ MM/DD/YYYY format result:", result);
+          return result;
         } else if (match.length === 3) {
-          // MM/DD (assume current year)
+          // MM/DD (need to infer year)
           const [, month, day] = match;
-          return `${currentYear}-${month.padStart(2, "0")}-${day.padStart(
+          const transactionMonth = parseInt(month);
+          console.log("🔍 Year inference needed for:", month, "/", day);
+          console.log(
+            "Transaction month:",
+            transactionMonth,
+            "Statement month:",
+            statementMonth
+          );
+
+          // Smart year inference logic
+          let inferredYear = statementYear;
+
+          // If transaction month is significantly later than statement month,
+          // it's likely from the previous year
+          if (transactionMonth > statementMonth + 6) {
+            inferredYear = statementYear - 1;
+            console.log(
+              `⬅️ Inferred PREVIOUS year (${inferredYear}) for ${month}/${day} - transaction month (${transactionMonth}) > statement month (${statementMonth}) + 6`
+            );
+          }
+          // If transaction month is December and we're in January-March,
+          // it's likely from the previous year
+          else if (transactionMonth === 12 && statementMonth <= 3) {
+            inferredYear = statementYear - 1;
+            console.log(
+              `🎄 December transaction in early year statement: ${inferredYear} (transaction: Dec, statement: ${statementMonth})`
+            );
+          }
+          // If transaction month is much earlier than statement month (like Jan transactions in Dec statement),
+          // it might be from the next year, but this is less common
+          else if (transactionMonth < statementMonth - 6) {
+            inferredYear = statementYear + 1;
+            console.log(
+              `➡️ Inferred NEXT year (${inferredYear}) for ${month}/${day} - transaction month (${transactionMonth}) < statement month (${statementMonth}) - 6`
+            );
+          } else {
+            console.log(
+              `📅 Using statement year (${inferredYear}) for ${month}/${day} - no special case detected`
+            );
+          }
+
+          const result = `${inferredYear}-${month.padStart(
             2,
             "0"
-          )}`;
+          )}-${day.padStart(2, "0")}`;
+          console.log("✅ Final inferred result:", result);
+          return result;
         }
       }
     }
 
+    console.log("❌ No pattern matched, returning original:", dateStr);
     return dateStr; // Return original if no pattern matches
   };
 
@@ -179,9 +336,17 @@ export const PDFImport: React.FC<PDFImportProps> = ({ onImportComplete }) => {
 
     if (isAmazonStatement) {
       console.log("Detected Amazon credit card statement");
+      console.log(
+        "PDF text snippet (first 1000 chars):",
+        text.substring(0, 1000)
+      );
+      console.log(
+        "PDF text snippet (search for dates):",
+        text.match(/\d{1,2}\/\d{1,2}\/\d{4}/g)?.slice(0, 10)
+      );
 
       // For Amazon statements, extract transactions directly from the full text
-      const amazonTransactions = extractAmazonTransactions(text);
+      const amazonTransactions = extractAmazonTransactions(text, text);
       transactions.push(...amazonTransactions);
       console.log(`Found ${amazonTransactions.length} Amazon transactions`);
     } else {
@@ -204,7 +369,7 @@ export const PDFImport: React.FC<PDFImportProps> = ({ onImportComplete }) => {
         const atmSection = atmSectionMatch[0];
         console.log("Processing ATM section:", atmSection);
 
-        const atmTransactions = extractATMTransactions(atmSection);
+        const atmTransactions = extractATMTransactions(atmSection, text);
         transactions.push(...atmTransactions);
         console.log(`Found ${atmTransactions.length} ATM transactions`);
       }
@@ -214,8 +379,10 @@ export const PDFImport: React.FC<PDFImportProps> = ({ onImportComplete }) => {
         const electronicSection = electronicSectionMatch[0];
         console.log("Processing Electronic section:", electronicSection);
 
-        const electronicTransactions =
-          extractElectronicTransactions(electronicSection);
+        const electronicTransactions = extractElectronicTransactions(
+          electronicSection,
+          text
+        );
         transactions.push(...electronicTransactions);
         console.log(
           `Found ${electronicTransactions.length} Electronic transactions`
@@ -230,7 +397,8 @@ export const PDFImport: React.FC<PDFImportProps> = ({ onImportComplete }) => {
   };
 
   const extractATMTransactions = (
-    atmSection: string
+    atmSection: string,
+    fullText: string
   ): ExtractedTransaction[] => {
     const transactions: ExtractedTransaction[] = [];
 
@@ -246,7 +414,7 @@ export const PDFImport: React.FC<PDFImportProps> = ({ onImportComplete }) => {
       const amount = parseAmount(amountStr);
 
       if (amount !== 0) {
-        const normalizedDate = normalizeDate(date);
+        const normalizedDate = normalizeDate(date, fullText);
         const cleanDescription = `Card Purchase With Pin ${description.trim()}`;
         const type = determineTransactionType(cleanDescription, amount);
 
@@ -262,7 +430,10 @@ export const PDFImport: React.FC<PDFImportProps> = ({ onImportComplete }) => {
     return transactions;
   };
 
-  const extractAmazonTransactions = (text: string): ExtractedTransaction[] => {
+  const extractAmazonTransactions = (
+    text: string,
+    fullText: string
+  ): ExtractedTransaction[] => {
     const transactions: ExtractedTransaction[] = [];
 
     // Amazon transaction patterns - adjusted for the actual PDF format
@@ -304,7 +475,7 @@ export const PDFImport: React.FC<PDFImportProps> = ({ onImportComplete }) => {
         const amount = parseAmount(amountStr);
 
         if (amount !== 0 && description && description.trim().length > 2) {
-          const normalizedDate = normalizeDate(date);
+          const normalizedDate = normalizeDate(date, fullText);
           let cleanDescription = description.trim();
 
           // Clean up Amazon descriptions
@@ -359,7 +530,8 @@ export const PDFImport: React.FC<PDFImportProps> = ({ onImportComplete }) => {
   };
 
   const extractElectronicTransactions = (
-    electronicSection: string
+    electronicSection: string,
+    fullText: string
   ): ExtractedTransaction[] => {
     const transactions: ExtractedTransaction[] = [];
 
@@ -426,7 +598,7 @@ export const PDFImport: React.FC<PDFImportProps> = ({ onImportComplete }) => {
         const amount = parseAmount(amountStr);
 
         if (amount !== 0 && description && description.trim().length > 2) {
-          const normalizedDate = normalizeDate(date);
+          const normalizedDate = normalizeDate(date, fullText);
           let cleanDescription = description.trim().replace(/\s+/g, " ");
 
           // For Privacy.com transactions, clean up the description by removing TN and Web ID info
