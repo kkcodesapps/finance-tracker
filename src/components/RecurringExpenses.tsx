@@ -244,8 +244,6 @@ export const RecurringExpenses: React.FC = () => {
     return expenses.filter((expense) => expense.trend === trendFilter);
   };
 
-  const filteredExpenses = filterExpensesByTrend(recurringExpenses);
-
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat("en-US", {
       style: "currency",
@@ -272,6 +270,62 @@ export const RecurringExpenses: React.FC = () => {
     return `${monthNames[parseInt(month) - 1]} ${year}`;
   };
 
+  // Calculate recent spending (last 2 months)
+  const calculateRecentSpending = (expenses: RecurringExpense[]) => {
+    const now = new Date();
+    const currentMonthYear = `${now.getFullYear()}-${String(
+      now.getMonth() + 1
+    ).padStart(2, "0")}`;
+
+    // Get previous month
+    const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const prevMonthYear = `${prevMonth.getFullYear()}-${String(
+      prevMonth.getMonth() + 1
+    ).padStart(2, "0")}`;
+
+    const recentMonths = [currentMonthYear, prevMonthYear];
+
+    let totalRecentSpending = 0;
+    const recentMerchants = new Set();
+
+    expenses.forEach((expense) => {
+      let merchantRecentSpending = 0;
+      let hasRecentActivity = false;
+
+      expense.monthlyData.forEach((monthData) => {
+        if (recentMonths.includes(monthData.monthYear)) {
+          merchantRecentSpending += monthData.totalAmount;
+          hasRecentActivity = true;
+          recentMerchants.add(expense.merchant);
+        }
+      });
+
+      if (hasRecentActivity) {
+        totalRecentSpending += merchantRecentSpending / 2; // Average over 2 months
+      }
+    });
+
+    return {
+      totalRecentSpending,
+      recentMerchantCount: recentMerchants.size,
+      recentMonths: recentMonths.map((monthYear) => formatMonth(monthYear)),
+    };
+  };
+
+  const filteredExpenses = filterExpensesByTrend(recurringExpenses);
+
+  // Calculate all metrics
+  const totalPotentialSavings = filteredExpenses.reduce(
+    (sum, expense) => sum + expense.potentialMonthlySavings,
+    0
+  );
+  const totalCurrentSpending = filteredExpenses.reduce(
+    (sum, expense) => sum + expense.averageMonthly,
+    0
+  );
+
+  const recentSpendingData = calculateRecentSpending(filteredExpenses);
+
   const getTrendIcon = (trend: string) => {
     switch (trend) {
       case "increasing":
@@ -293,15 +347,6 @@ export const RecurringExpenses: React.FC = () => {
         return "text-gray-600 bg-gray-50";
     }
   };
-
-  const totalPotentialSavings = filteredExpenses.reduce(
-    (sum, expense) => sum + expense.potentialMonthlySavings,
-    0
-  );
-  const totalCurrentSpending = filteredExpenses.reduce(
-    (sum, expense) => sum + expense.averageMonthly,
-    0
-  );
 
   if (loading) {
     return (
@@ -410,12 +455,13 @@ export const RecurringExpenses: React.FC = () => {
             <div className="flex items-center">
               <DollarSign className="h-5 w-5 text-red-600 mr-2" />
               <span className="text-sm text-red-600 font-medium">
-                Current Monthly Spending
+                Average Monthly Spending
               </span>
             </div>
             <p className="text-2xl font-bold text-red-800 mt-1">
               {formatCurrency(totalCurrentSpending)}
             </p>
+            <p className="text-xs text-red-600 mt-1">Historical average</p>
           </div>
 
           <div className="bg-blue-50 p-4 rounded-lg">
@@ -443,6 +489,84 @@ export const RecurringExpenses: React.FC = () => {
             </div>
             <p className="text-2xl font-bold text-yellow-800 mt-1">
               {formatCurrency(totalPotentialSavings * 12)}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Recent Spending Analysis */}
+      <div className="bg-white p-6 rounded-lg shadow-md">
+        <div className="flex items-center mb-4">
+          <TrendingUp className="h-6 w-6 text-green-600 mr-2" />
+          <h2 className="text-xl font-semibold text-gray-900">
+            Recent Spending Analysis
+          </h2>
+        </div>
+        <p className="text-gray-600 mb-4">
+          Analysis based on the most recent 2 months (
+          {recentSpendingData.recentMonths.join(" & ")}) for a more current view
+          of your spending patterns.
+        </p>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="bg-green-50 p-4 rounded-lg">
+            <div className="flex items-center">
+              <DollarSign className="h-5 w-5 text-green-600 mr-2" />
+              <span className="text-sm text-green-600 font-medium">
+                Current Monthly Spending
+              </span>
+            </div>
+            <p className="text-2xl font-bold text-green-800 mt-1">
+              {formatCurrency(recentSpendingData.totalRecentSpending)}
+            </p>
+            <p className="text-xs text-green-600 mt-1">Last 2 months average</p>
+          </div>
+
+          <div className="bg-purple-50 p-4 rounded-lg">
+            <div className="flex items-center">
+              <Calendar className="h-5 w-5 text-purple-600 mr-2" />
+              <span className="text-sm text-purple-600 font-medium">
+                Active Merchants
+              </span>
+            </div>
+            <p className="text-2xl font-bold text-purple-800 mt-1">
+              {recentSpendingData.recentMerchantCount}
+            </p>
+            <p className="text-xs text-purple-600 mt-1">Recently active</p>
+          </div>
+
+          <div className="bg-indigo-50 p-4 rounded-lg">
+            <div className="flex items-center">
+              <TrendingUp className="h-5 w-5 text-indigo-600 mr-2" />
+              <span className="text-sm text-indigo-600 font-medium">
+                Spending Trend
+              </span>
+            </div>
+            <p className="text-lg font-bold text-indigo-800 mt-1">
+              {recentSpendingData.totalRecentSpending > totalCurrentSpending ? (
+                <span className="text-red-600">↗ Higher</span>
+              ) : recentSpendingData.totalRecentSpending <
+                totalCurrentSpending ? (
+                <span className="text-green-600">↘ Lower</span>
+              ) : (
+                <span className="text-blue-600">→ Stable</span>
+              )}
+            </p>
+            <p className="text-xs text-indigo-600 mt-1">
+              vs historical average
+            </p>
+            <p className="text-xs text-indigo-500 mt-1">
+              {recentSpendingData.totalRecentSpending > totalCurrentSpending
+                ? `+${formatCurrency(
+                    recentSpendingData.totalRecentSpending -
+                      totalCurrentSpending
+                  )}`
+                : recentSpendingData.totalRecentSpending < totalCurrentSpending
+                ? `-${formatCurrency(
+                    totalCurrentSpending -
+                      recentSpendingData.totalRecentSpending
+                  )}`
+                : "No change"}
             </p>
           </div>
         </div>
