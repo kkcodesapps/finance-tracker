@@ -784,9 +784,15 @@ export const PDFImport: React.FC<PDFImportProps> = ({ onImportComplete }) => {
 
   const checkForDuplicates = async (transactions: ExtractedTransaction[]) => {
     try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return { newTransactions: transactions, duplicateCount: 0 };
+
       const { data: existingTransactions, error } = await supabase
         .from("transactions")
-        .select("date, amount, type, merchant");
+        .select("date, amount, type, merchant")
+        .eq("user_id", user.id);
 
       if (error) {
         console.error("Error fetching existing transactions:", error);
@@ -851,11 +857,25 @@ export const PDFImport: React.FC<PDFImportProps> = ({ onImportComplete }) => {
           failed: 0,
         });
       } else {
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        if (!user) {
+          setSuccessMessage({
+            imported: 0,
+            duplicates: duplicateCount,
+            failed: newTransactions.length,
+          });
+          setImporting(false);
+          return;
+        }
+
         const transactionsToInsert = newTransactions.map((t) => ({
           date: t.date,
           amount: t.amount,
           type: t.type,
           merchant: t.description,
+          user_id: user.id,
         }));
 
         console.log("Transactions to insert:", transactionsToInsert);

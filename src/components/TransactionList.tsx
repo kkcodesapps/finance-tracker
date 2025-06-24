@@ -22,9 +22,15 @@ export const TransactionList: React.FC<TransactionListProps> = ({
   const fetchTransactions = async () => {
     setLoading(true);
     try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return;
+
       const { data, error } = await supabase
         .from("transactions")
         .select("*")
+        .eq("user_id", user.id)
         .order("date", { ascending: false });
 
       if (error) {

@@ -37,10 +37,16 @@ export const MonthlyDetail: React.FC<MonthlyDetailProps> = ({
       const monthStart = startOfMonth(monthDate);
       const monthEnd = endOfMonth(monthDate);
 
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return;
+
       // Fetch ALL transactions first (same as SpendingCharts)
       const { data: allTransactions, error } = await supabase
         .from("transactions")
         .select("*")
+        .eq("user_id", user.id)
         .order("date", { ascending: false });
 
       if (error) {

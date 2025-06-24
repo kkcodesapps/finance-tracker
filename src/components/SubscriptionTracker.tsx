@@ -38,10 +38,16 @@ export const SubscriptionTracker: React.FC = () => {
   const analyzeSubscriptions = async () => {
     setLoading(true);
     try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return;
+
       // Fetch all non-payment transactions
       const { data: allTransactions, error } = await supabase
         .from("transactions")
         .select("*")
+        .eq("user_id", user.id)
         .neq("type", "Payment")
         .order("date", { ascending: false });
 

@@ -71,9 +71,15 @@ export const SpendingCharts: React.FC<SpendingChartsProps> = ({
   const fetchSpendingData = async () => {
     setLoading(true);
     try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return;
+
       const { data: transactions, error } = await supabase
         .from("transactions")
         .select("*")
+        .eq("user_id", user.id)
         .order("date", { ascending: true });
 
       if (error) {

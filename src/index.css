@@ -10,3 +10,80 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
+
+/* Custom slider styles for confidence bar */
+.slider {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 8px;
+  border-radius: 4px;
+  outline: none;
+  transition: all 0.2s ease;
+}
+
+.slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: white;
+  border: 2px solid #3b82f6;
+  cursor: pointer;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  transition: all 0.2s ease;
+}
+
+.slider::-webkit-slider-thumb:hover {
+  transform: scale(1.1);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+.slider::-webkit-slider-thumb:active {
+  transform: scale(1.2);
+}
+
+.slider::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: white;
+  border: 2px solid #3b82f6;
+  cursor: pointer;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  transition: all 0.2s ease;
+}
+
+.slider::-moz-range-thumb:hover {
+  transform: scale(1.1);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+.slider::-moz-range-thumb:active {
+  transform: scale(1.2);
+}
+
+/* Color variants for slider thumb based on confidence level */
+.accent-red-500::-webkit-slider-thumb {
+  border-color: #ef4444;
+}
+
+.accent-yellow-500::-webkit-slider-thumb {
+  border-color: #eab308;
+}
+
+.accent-green-500::-webkit-slider-thumb {
+  border-color: #22c55e;
+}
+
+.accent-red-500::-moz-range-thumb {
+  border-color: #ef4444;
+}
+
+.accent-yellow-500::-moz-range-thumb {
+  border-color: #eab308;
+}
+
+.accent-green-500::-moz-range-thumb {
+  border-color: #22c55e;
+}

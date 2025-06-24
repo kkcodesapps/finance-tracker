@@ -56,10 +56,16 @@ export const RecurringExpenses: React.FC = () => {
   const analyzeRecurringExpenses = async () => {
     setLoading(true);
     try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return;
+
       // Fetch all non-payment transactions
       const { data: allTransactions, error } = await supabase
         .from("transactions")
         .select("*")
+        .eq("user_id", user.id)
         .neq("type", "Payment")
         .order("date", { ascending: false });
 

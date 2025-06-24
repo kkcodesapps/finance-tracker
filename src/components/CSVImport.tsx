@@ -165,10 +165,16 @@ export const CSVImport: React.FC<CSVImportProps> = ({ onImportComplete }) => {
         "transactions"
       );
 
-      // Get all existing transactions from the database
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return { newTransactions: transactions, duplicateCount: 0 };
+
+      // Get all existing transactions from the database for this user
       const { data: existingTransactions, error } = await supabase
         .from("transactions")
-        .select("date, amount, type, merchant");
+        .select("date, amount, type, merchant")
+        .eq("user_id", user.id);
 
       if (error) {
         console.error("Error fetching existing transactions:", error);
@@ -410,11 +416,21 @@ export const CSVImport: React.FC<CSVImportProps> = ({ onImportComplete }) => {
       }
 
       // Insert only new transactions
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) {
+        alert("User not authenticated");
+        setImporting(false);
+        return;
+      }
+
       const transactionsToInsert = newTransactions.map((t) => ({
         date: t.date,
         amount: t.amount,
         type: t.type,
         merchant: t.merchant,
+        user_id: user.id,
       }));
 
       const { error } = await supabase
