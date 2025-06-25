@@ -59,9 +59,18 @@ export const TradingJournal: React.FC = () => {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
 
+  // Helper function to get local date string
+  const getLocalDateString = () => {
+    const today = new Date();
+    const year = today.getFullYear();
+    const month = String(today.getMonth() + 1).padStart(2, "0");
+    const day = String(today.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  };
+
   // New trade form state
   const [newTrade, setNewTrade] = useState<NewTrade>({
-    date: new Date().toISOString().split("T")[0],
+    date: getLocalDateString(),
     symbol: "",
     side: "buy",
     quantity: 0,
@@ -143,7 +152,8 @@ export const TradingJournal: React.FC = () => {
         .from("trades")
         .select("*")
         .eq("user_id", user.id)
-        .order("date", { ascending: false });
+        .order("date", { ascending: false })
+        .order("created_at", { ascending: false });
 
       if (error) {
         console.error("Error fetching trades:", error);
@@ -257,7 +267,7 @@ export const TradingJournal: React.FC = () => {
 
       // Reset form
       setNewTrade({
-        date: new Date().toISOString().split("T")[0],
+        date: getLocalDateString(),
         symbol: "",
         side: "buy",
         quantity: 0,
@@ -523,7 +533,7 @@ export const TradingJournal: React.FC = () => {
     isEditing?: boolean;
     onChange?: (value: number) => void;
   }> = ({ risk, isEditing = false, onChange }) => {
-    const circumference = 2 * Math.PI * 16; // radius = 16
+    const circumference = 2 * Math.PI * 18; // radius = 18
     const strokeDasharray = circumference;
     const strokeDashoffset = circumference - (risk / 100) * circumference;
 
@@ -546,20 +556,20 @@ export const TradingJournal: React.FC = () => {
 
     return (
       <div className="flex items-center space-x-2">
-        <div className="relative w-8 h-8">
-          <svg className="w-8 h-8 transform -rotate-90" viewBox="0 0 36 36">
+        <div className="relative w-10 h-10">
+          <svg className="w-10 h-10 transform -rotate-90" viewBox="0 0 40 40">
             <circle
-              cx="18"
-              cy="18"
-              r="16"
+              cx="20"
+              cy="20"
+              r="18"
               fill="none"
               stroke="#e5e7eb"
               strokeWidth="3"
             />
             <circle
-              cx="18"
-              cy="18"
-              r="16"
+              cx="20"
+              cy="20"
+              r="18"
               fill="none"
               stroke="#3b82f6"
               strokeWidth="3"
@@ -569,7 +579,12 @@ export const TradingJournal: React.FC = () => {
             />
           </svg>
           <div className="absolute inset-0 flex items-center justify-center">
-            <span className="text-xs font-medium">{risk.toFixed(0)}%</span>
+            <span className="text-xs font-medium">
+              {risk % 1 === 0
+                ? risk.toFixed(0)
+                : risk.toFixed(2).replace(/\.?0+$/, "")}
+              %
+            </span>
           </div>
         </div>
       </div>
@@ -663,7 +678,7 @@ export const TradingJournal: React.FC = () => {
         </button>
 
         {isOpen && (
-          <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+          <div className="absolute z-[9999] w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
             {/* Recent symbols */}
             {symbols.length > 0 && (
               <>
@@ -838,10 +853,8 @@ export const TradingJournal: React.FC = () => {
                   className={`
                     h-20 p-2 border rounded-lg text-center transition-colors relative flex flex-col justify-between
                     ${
-                      isToday
-                        ? "ring-2 ring-black ring-inset"
-                        : isSelected
-                        ? "ring-2 ring-blue-500 ring-inset border-blue-300"
+                      isSelected
+                        ? "ring-2 ring-black ring-inset border-gray-300"
                         : "border-gray-200"
                     }
                     ${dayData ? "cursor-pointer hover:border-gray-300" : ""}
@@ -870,6 +883,11 @@ export const TradingJournal: React.FC = () => {
                     }
                   }}
                 >
+                  {/* Today indicator dot */}
+                  {isToday && (
+                    <div className="absolute top-1 right-1 w-2 h-2 bg-black rounded-full"></div>
+                  )}
+
                   <div className="text-sm font-semibold text-gray-900">
                     {day}
                   </div>
@@ -1009,6 +1027,132 @@ export const TradingJournal: React.FC = () => {
     );
   };
 
+  // Custom Dropdown Component for Side
+  const SideDropdown: React.FC<{
+    value: "buy" | "sell";
+    onChange: (value: "buy" | "sell") => void;
+    disabled?: boolean;
+  }> = ({ value, onChange, disabled = false }) => {
+    const [isOpen, setIsOpen] = useState(false);
+
+    const options = [
+      { value: "buy" as const, label: "Buy", color: "green" },
+      { value: "sell" as const, label: "Sell", color: "red" },
+    ];
+
+    const selectedOption = options.find((opt) => opt.value === value);
+
+    return (
+      <div className="relative">
+        <button
+          type="button"
+          onClick={() => setIsOpen(!isOpen)}
+          disabled={disabled}
+          className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:opacity-50 bg-white text-left flex items-center justify-between"
+        >
+          <span
+            className={`inline-flex px-2 py-0.5 text-xs font-bold rounded-full ${
+              selectedOption?.color === "green"
+                ? "bg-green-100 text-green-800"
+                : "bg-red-100 text-red-800"
+            }`}
+          >
+            {selectedOption?.label.toUpperCase()}
+          </span>
+          <ChevronDown
+            className={`h-4 w-4 transition-transform ${
+              isOpen ? "rotate-180" : ""
+            }`}
+          />
+        </button>
+
+        {isOpen && (
+          <div className="absolute z-[9999] w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+            {options.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => {
+                  onChange(option.value);
+                  setIsOpen(false);
+                }}
+                className="w-full px-3 py-2 text-sm text-left hover:bg-gray-50 focus:bg-gray-50 focus:outline-none flex items-center"
+              >
+                <span
+                  className={`inline-flex px-2 py-0.5 text-xs font-bold rounded-full ${
+                    option.color === "green"
+                      ? "bg-green-100 text-green-800"
+                      : "bg-red-100 text-red-800"
+                  }`}
+                >
+                  {option.label.toUpperCase()}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // Custom Dropdown Component for Timeframe
+  const TimeframeDropdown: React.FC<{
+    value: "1m" | "3m" | "5m" | "15m" | "30m" | "1h";
+    onChange: (value: "1m" | "3m" | "5m" | "15m" | "30m" | "1h") => void;
+    disabled?: boolean;
+  }> = ({ value, onChange, disabled = false }) => {
+    const [isOpen, setIsOpen] = useState(false);
+
+    const options = [
+      { value: "1m" as const, label: "1m" },
+      { value: "3m" as const, label: "3m" },
+      { value: "5m" as const, label: "5m" },
+      { value: "15m" as const, label: "15m" },
+      { value: "30m" as const, label: "30m" },
+      { value: "1h" as const, label: "1h" },
+    ];
+
+    return (
+      <div className="relative">
+        <button
+          type="button"
+          onClick={() => setIsOpen(!isOpen)}
+          disabled={disabled}
+          className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:opacity-50 bg-white text-left flex items-center justify-between"
+        >
+          <span className="inline-flex px-2 py-0.5 text-xs font-medium rounded bg-gray-100 text-gray-800">
+            {value}
+          </span>
+          <ChevronDown
+            className={`h-4 w-4 transition-transform ${
+              isOpen ? "rotate-180" : ""
+            }`}
+          />
+        </button>
+
+        {isOpen && (
+          <div className="absolute z-[9999] w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+            {options.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => {
+                  onChange(option.value);
+                  setIsOpen(false);
+                }}
+                className="w-full px-3 py-2 text-sm text-left hover:bg-gray-50 focus:bg-gray-50 focus:outline-none flex items-center"
+              >
+                <span className="inline-flex px-2 py-0.5 text-xs font-medium rounded bg-gray-100 text-gray-800">
+                  {option.label}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   if (loading) {
     return (
       <div className="bg-white border border-gray-200 p-6 rounded-xl">
@@ -1051,16 +1195,6 @@ export const TradingJournal: React.FC = () => {
                 Track your trading performance
               </p>
             </div>
-          </div>
-          <div className="flex space-x-3">
-            <button
-              onClick={() => setIsAddingNew(true)}
-              disabled={saving}
-              className="flex items-center bg-gray-800 hover:bg-gray-900 disabled:opacity-50 disabled:cursor-not-allowed text-white px-6 py-3 rounded-xl transition-all duration-200"
-            >
-              <Plus className="h-5 w-5 mr-2" />
-              Add Trade
-            </button>
           </div>
         </div>
 
@@ -1210,18 +1344,28 @@ export const TradingJournal: React.FC = () => {
                 </p>
               </div>
             </div>
-            {selectedDate && (
+            <div className="flex items-center space-x-3">
               <button
-                onClick={() => setSelectedDate(null)}
-                className="text-sm text-blue-600 hover:text-blue-800 px-3 py-1 border border-blue-200 rounded-lg hover:bg-blue-50 transition-colors"
+                onClick={() => setIsAddingNew(true)}
+                disabled={saving}
+                className="flex items-center border border-gray-800 hover:bg-blue-50 disabled:opacity-50 disabled:cursor-not-allowed text-gray-800 px-4 py-2 rounded-lg transition-all duration-200 hover:text-blue-800 hover:border-blue-800"
               >
-                Clear Filter
+                <Plus className="h-4 w-4 mr-2" />
+                Add Trade
               </button>
-            )}
+              {selectedDate && (
+                <button
+                  onClick={() => setSelectedDate(null)}
+                  className="text-sm text-blue-600 hover:text-blue-800 px-3 py-1 border border-blue-200 rounded-lg hover:bg-blue-50 transition-colors"
+                >
+                  Clear Filter
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
-        <div className="overflow-x-auto bg-white">
+        <div className="overflow-x-auto bg-white relative">
           <table className="w-full min-w-[1200px] table-fixed">
             <colgroup>
               <col style={{ width: "80px" }} />
@@ -1366,7 +1510,7 @@ export const TradingJournal: React.FC = () => {
                       --:--
                     </span>
                   </td>
-                  <td className="px-4 py-3">
+                  <td className="px-4 py-3 relative">
                     <SymbolDropdown
                       value={newTrade.symbol}
                       onChange={(value) =>
@@ -1375,21 +1519,14 @@ export const TradingJournal: React.FC = () => {
                       disabled={saving}
                     />
                   </td>
-                  <td className="px-4 py-3">
-                    <select
+                  <td className="px-4 py-3 relative">
+                    <SideDropdown
                       value={newTrade.side}
-                      onChange={(e) =>
-                        setNewTrade({
-                          ...newTrade,
-                          side: e.target.value as "buy" | "sell",
-                        })
+                      onChange={(value) =>
+                        setNewTrade({ ...newTrade, side: value })
                       }
                       disabled={saving}
-                      className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:opacity-50"
-                    >
-                      <option value="buy">Buy</option>
-                      <option value="sell">Sell</option>
-                    </select>
+                    />
                   </td>
                   <td className="px-4 py-3">
                     <input
@@ -1406,37 +1543,20 @@ export const TradingJournal: React.FC = () => {
                       className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:opacity-50"
                     />
                   </td>
-                  <td className="px-4 py-3">
-                    <select
+                  <td className="px-4 py-3 relative">
+                    <TimeframeDropdown
                       value={newTrade.timeframe}
-                      onChange={(e) =>
-                        setNewTrade({
-                          ...newTrade,
-                          timeframe: e.target.value as
-                            | "1m"
-                            | "3m"
-                            | "5m"
-                            | "15m"
-                            | "30m"
-                            | "1h",
-                        })
+                      onChange={(value) =>
+                        setNewTrade({ ...newTrade, timeframe: value })
                       }
                       disabled={saving}
-                      className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:opacity-50"
-                    >
-                      <option value="1m">1m</option>
-                      <option value="3m">3m</option>
-                      <option value="5m">5m</option>
-                      <option value="15m">15m</option>
-                      <option value="30m">30m</option>
-                      <option value="1h">1h</option>
-                    </select>
+                    />
                   </td>
                   <td className="px-4 py-3">
                     <input
                       type="number"
                       step="0.01"
-                      value={newTrade.pnl}
+                      value={newTrade.pnl || ""}
                       onChange={(e) =>
                         setNewTrade({
                           ...newTrade,
@@ -1444,6 +1564,7 @@ export const TradingJournal: React.FC = () => {
                         })
                       }
                       disabled={saving}
+                      placeholder="0.00"
                       className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:opacity-50"
                     />
                   </td>
@@ -1604,7 +1725,7 @@ export const TradingJournal: React.FC = () => {
                         {formatTime(trade.created_at)}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-sm font-medium text-gray-900 overflow-hidden">
+                    <td className="px-4 py-3 text-sm font-medium text-gray-900 relative">
                       {isEditing ? (
                         <SymbolDropdown
                           value={currentTrade.symbol || ""}
@@ -1622,22 +1743,18 @@ export const TradingJournal: React.FC = () => {
                         </span>
                       )}
                     </td>
-                    <td className="px-4 py-3 overflow-hidden">
+                    <td className="px-4 py-3 relative">
                       {isEditing ? (
-                        <select
+                        <SideDropdown
                           value={currentTrade.side || "buy"}
-                          onChange={(e) =>
+                          onChange={(value) =>
                             setEditingTrade({
                               ...editingTrade,
-                              side: e.target.value as "buy" | "sell",
+                              side: value,
                             })
                           }
                           disabled={saving}
-                          className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 disabled:opacity-50"
-                        >
-                          <option value="buy">Buy</option>
-                          <option value="sell">Sell</option>
-                        </select>
+                        />
                       ) : (
                         <span
                           className={`inline-flex px-2 py-1 text-xs font-bold rounded-full whitespace-nowrap ${
@@ -1671,32 +1788,18 @@ export const TradingJournal: React.FC = () => {
                         </span>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-sm text-gray-900 overflow-hidden">
+                    <td className="px-4 py-3 text-sm text-gray-900 relative">
                       {isEditing ? (
-                        <select
+                        <TimeframeDropdown
                           value={currentTrade.timeframe || "1m"}
-                          onChange={(e) =>
+                          onChange={(value) =>
                             setEditingTrade({
                               ...editingTrade,
-                              timeframe: e.target.value as
-                                | "1m"
-                                | "3m"
-                                | "5m"
-                                | "15m"
-                                | "30m"
-                                | "1h",
+                              timeframe: value,
                             })
                           }
                           disabled={saving}
-                          className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 disabled:opacity-50"
-                        >
-                          <option value="1m">1m</option>
-                          <option value="3m">3m</option>
-                          <option value="5m">5m</option>
-                          <option value="15m">15m</option>
-                          <option value="30m">30m</option>
-                          <option value="1h">1h</option>
-                        </select>
+                        />
                       ) : (
                         <span className="inline-flex px-2 py-1 text-xs font-medium rounded bg-gray-100 text-gray-800 border border-gray-200 whitespace-nowrap">
                           {trade.timeframe}
@@ -1708,7 +1811,7 @@ export const TradingJournal: React.FC = () => {
                         <input
                           type="number"
                           step="0.01"
-                          value={currentTrade.pnl || 0}
+                          value={currentTrade.pnl || ""}
                           onChange={(e) =>
                             setEditingTrade({
                               ...editingTrade,
@@ -1716,6 +1819,7 @@ export const TradingJournal: React.FC = () => {
                             })
                           }
                           disabled={saving}
+                          placeholder="0.00"
                           className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 disabled:opacity-50"
                         />
                       ) : (
