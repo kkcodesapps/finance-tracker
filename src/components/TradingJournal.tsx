@@ -1031,10 +1031,14 @@ export const TradingJournal: React.FC = () => {
               </div>
               <div>
                 <h3 className="text-xl font-bold text-gray-900">
-                  Equity Curve
+                  {selectedDate ? "Daily Trade Performance" : "Equity Curve"}
                 </h3>
                 <p className="text-gray-600 text-sm">
-                  Your trading performance over time
+                  {selectedDate
+                    ? `Trade-by-trade performance for ${formatDate(
+                        selectedDate
+                      )}`
+                    : "Your trading performance over time"}
                 </p>
               </div>
             </div>
@@ -1042,7 +1046,23 @@ export const TradingJournal: React.FC = () => {
               <div className="h-80 w-full">
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart
-                    data={equityData}
+                    data={
+                      selectedDate
+                        ? filteredTrades
+                            .sort(
+                              (a, b) =>
+                                new Date(a.created_at).getTime() -
+                                new Date(b.created_at).getTime()
+                            )
+                            .map((trade, index) => ({
+                              trade: `Trade ${index + 1}`,
+                              time: formatTime(trade.created_at),
+                              pnl: trade.pnl,
+                              symbol: trade.symbol,
+                              side: trade.side,
+                            }))
+                        : equityData
+                    }
                     margin={{ top: 15, right: 25, left: 15, bottom: 15 }}
                   >
                     <CartesianGrid
@@ -1051,15 +1071,19 @@ export const TradingJournal: React.FC = () => {
                       opacity={0.5}
                     />
                     <XAxis
-                      dataKey="date"
-                      tickFormatter={(date) => {
-                        // Use same approach as formatDate to avoid timezone issues
-                        const d = new Date(date + "T00:00:00");
-                        return d.toLocaleDateString("en-US", {
-                          month: "short",
-                          day: "numeric",
-                        });
-                      }}
+                      dataKey={selectedDate ? "time" : "date"}
+                      tickFormatter={
+                        selectedDate
+                          ? (time) => time
+                          : (date) => {
+                              // Use same approach as formatDate to avoid timezone issues
+                              const d = new Date(date + "T00:00:00");
+                              return d.toLocaleDateString("en-US", {
+                                month: "short",
+                                day: "numeric",
+                              });
+                            }
+                      }
                       stroke="#6b7280"
                       fontSize={11}
                       tickMargin={8}
@@ -1072,19 +1096,35 @@ export const TradingJournal: React.FC = () => {
                       width={70}
                     />
                     <Tooltip
-                      labelFormatter={(date) => {
-                        // Use same approach as formatDate to avoid timezone issues
-                        const d = new Date(date + "T00:00:00");
-                        return d.toLocaleDateString("en-US", {
-                          weekday: "short",
-                          year: "numeric",
-                          month: "short",
-                          day: "numeric",
-                        });
-                      }}
+                      labelFormatter={
+                        selectedDate
+                          ? (time, payload) => {
+                              if (payload && payload[0] && payload[0].payload) {
+                                const data = payload[0].payload;
+                                return `${
+                                  data.symbol
+                                } ${data.side.toUpperCase()} at ${time}`;
+                              }
+                              return time;
+                            }
+                          : (date) => {
+                              // Use same approach as formatDate to avoid timezone issues
+                              const d = new Date(date + "T00:00:00");
+                              return d.toLocaleDateString("en-US", {
+                                weekday: "short",
+                                year: "numeric",
+                                month: "short",
+                                day: "numeric",
+                              });
+                            }
+                      }
                       formatter={(value: number, name: string) => [
                         formatCurrency(value),
-                        name === "equity" ? "Total Equity" : "Trade P&L",
+                        selectedDate
+                          ? "Trade P&L"
+                          : name === "equity"
+                          ? "Total Equity"
+                          : "Trade P&L",
                       ]}
                       contentStyle={{
                         backgroundColor: "white",
@@ -1094,7 +1134,7 @@ export const TradingJournal: React.FC = () => {
                     />
                     <Line
                       type="monotone"
-                      dataKey="equity"
+                      dataKey={selectedDate ? "pnl" : "equity"}
                       stroke="url(#equityGradient)"
                       strokeWidth={3}
                       dot={{ fill: "#3b82f6", strokeWidth: 2, r: 4 }}
