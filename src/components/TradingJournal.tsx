@@ -88,15 +88,31 @@ export const TradingJournal: React.FC = () => {
   const [imageModalOpen, setImageModalOpen] = useState(false);
   const [selectedTradeId, setSelectedTradeId] = useState<string | null>(null);
   const [beforeImage, setBeforeImage] = useState<string | null>(null);
+  const [duringImage, setDuringImage] = useState<string | null>(null);
   const [afterImage, setAfterImage] = useState<string | null>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
 
   // URL input state for image modal
   const [beforeImageUrl, setBeforeImageUrl] = useState("");
+  const [duringImageUrl, setDuringImageUrl] = useState("");
   const [afterImageUrl, setAfterImageUrl] = useState("");
+
+  // Temporary image state for new trades (before they have an ID)
+  const [tempBeforeImage, setTempBeforeImage] = useState<string | null>(null);
+  const [tempDuringImage, setTempDuringImage] = useState<string | null>(null);
+  const [tempAfterImage, setTempAfterImage] = useState<string | null>(null);
 
   // Fullscreen image viewer state
   const [fullscreenImage, setFullscreenImage] = useState<string | null>(null);
+
+  // Delete confirmation modal state
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [tradeToDelete, setTradeToDelete] = useState<string | null>(null);
+  const [tradeToDeleteInfo, setTradeToDeleteInfo] = useState<{
+    symbol: string;
+    date: string;
+    pnl: number;
+  } | null>(null);
 
   // Get unique symbols from trades for dropdown
   const getUniqueSymbols = () => {
@@ -121,7 +137,7 @@ export const TradingJournal: React.FC = () => {
 
   // Prevent body scrolling when modals are open
   useEffect(() => {
-    if (imageModalOpen || fullscreenImage) {
+    if (imageModalOpen || fullscreenImage || deleteModalOpen) {
       document.body.style.overflow = "hidden";
     } else {
       document.body.style.overflow = "unset";
@@ -131,7 +147,7 @@ export const TradingJournal: React.FC = () => {
     return () => {
       document.body.style.overflow = "unset";
     };
-  }, [imageModalOpen, fullscreenImage]);
+  }, [imageModalOpen, fullscreenImage, deleteModalOpen]);
 
   // Set most recent symbol when trades are loaded and we're adding a new trade
   useEffect(() => {
@@ -258,14 +274,38 @@ export const TradingJournal: React.FC = () => {
 
       console.log("Inserting trade with data:", formattedTrade);
 
-      const { error } = await supabase.from("trades").insert([formattedTrade]);
+      const { data, error } = await supabase
+        .from("trades")
+        .insert([formattedTrade])
+        .select();
 
       if (error) {
         console.error("Database error:", error);
         throw error;
       }
 
-      // Reset form
+      // If we have temporary images and the trade was created successfully
+      if (
+        data &&
+        data[0] &&
+        (tempBeforeImage || tempDuringImage || tempAfterImage)
+      ) {
+        const tradeId = data[0].id;
+        try {
+          await updateTradeImages(
+            tradeId,
+            tempBeforeImage,
+            tempDuringImage,
+            tempAfterImage
+          );
+          console.log("Temporary images saved to trade:", tradeId);
+        } catch (imageError) {
+          console.error("Error saving temporary images:", imageError);
+          // Don't throw here - the trade was saved successfully
+        }
+      }
+
+      // Reset form and temporary images
       setNewTrade({
         date: getLocalDateString(),
         symbol: "",
@@ -280,6 +320,9 @@ export const TradingJournal: React.FC = () => {
         is_loss: null,
         is_breakeven: null,
       });
+      setTempBeforeImage(null);
+      setTempDuringImage(null);
+      setTempAfterImage(null);
       setIsAddingNew(false);
       await fetchTrades();
     } catch (error) {
@@ -358,19 +401,40 @@ export const TradingJournal: React.FC = () => {
   };
 
   const handleDelete = async (tradeId: string) => {
-    if (!window.confirm("Are you sure you want to delete this trade?")) return;
+    // Find the trade to get its info for the confirmation modal
+    const trade = trades.find((t) => t.id === tradeId);
+    if (!trade) return;
+
+    // Set the trade info and open the confirmation modal
+    setTradeToDelete(tradeId);
+    setTradeToDeleteInfo({
+      symbol: trade.symbol,
+      date: trade.date,
+      pnl: trade.pnl,
+    });
+    setDeleteModalOpen(true);
+  };
+
+  const confirmDelete = async () => {
+    if (!tradeToDelete) return;
 
     setSaving(true);
     try {
       const { error } = await supabase
         .from("trades")
         .delete()
-        .eq("id", tradeId);
+        .eq("id", tradeToDelete);
 
       if (error) {
         console.error("Database error:", error);
         throw error;
       }
+
+      // Close modal and reset state
+      setDeleteModalOpen(false);
+      setTradeToDelete(null);
+      setTradeToDeleteInfo(null);
+
       await fetchTrades();
     } catch (error) {
       console.error("Error deleting trade:", error);
@@ -382,6 +446,12 @@ export const TradingJournal: React.FC = () => {
     } finally {
       setSaving(false);
     }
+  };
+
+  const cancelDelete = () => {
+    setDeleteModalOpen(false);
+    setTradeToDelete(null);
+    setTradeToDeleteInfo(null);
   };
 
   const formatCurrency = (amount: number) => {
@@ -438,7 +508,9 @@ export const TradingJournal: React.FC = () => {
   const totalPnL = trades.reduce((sum, trade) => sum + trade.pnl, 0);
   const winningTrades = trades.filter((trade) => trade.pnl > 0).length;
   const losingTrades = trades.filter((trade) => trade.pnl < 0).length;
-  const winRate = trades.length > 0 ? (winningTrades / trades.length) * 100 : 0;
+  const breakevenTrades = trades.filter((trade) => trade.pnl === 0).length;
+  const decidedTrades = winningTrades + losingTrades; // Exclude breakeven trades
+  const winRate = decidedTrades > 0 ? (winningTrades / decidedTrades) * 100 : 0;
 
   // Calculate average win and loss sizes
   const winningTradesPnL = trades.filter((trade) => trade.pnl > 0);
@@ -533,20 +605,48 @@ export const TradingJournal: React.FC = () => {
     isEditing?: boolean;
     onChange?: (value: number) => void;
   }> = ({ risk, isEditing = false, onChange }) => {
+    const [inputValue, setInputValue] = useState(
+      risk === 0 ? "" : risk.toString()
+    );
+
+    // Update local state when risk prop changes from outside
+    useEffect(() => {
+      setInputValue(risk === 0 ? "" : risk.toString());
+    }, [risk]);
+
     const circumference = 2 * Math.PI * 18; // radius = 18
     const strokeDasharray = circumference;
     const strokeDashoffset = circumference - (risk / 100) * circumference;
+
+    const handleInputChange = (value: string) => {
+      // Allow empty string, numbers, and decimal points
+      if (value === "" || /^\d*\.?\d*$/.test(value)) {
+        setInputValue(value);
+      }
+    };
+
+    const handleInputBlur = () => {
+      if (onChange) {
+        const numValue = inputValue === "" ? 0 : parseFloat(inputValue);
+        if (!isNaN(numValue) && numValue >= 0 && numValue <= 100) {
+          onChange(numValue);
+        } else {
+          // Reset to current risk value if invalid
+          setInputValue(risk === 0 ? "" : risk.toString());
+        }
+      }
+    };
 
     if (isEditing && onChange) {
       return (
         <div className="flex items-center space-x-2">
           <input
-            type="number"
-            step="0.01"
-            min="0"
-            max="100"
-            value={risk}
-            onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
+            type="text"
+            inputMode="decimal"
+            value={inputValue}
+            onChange={(e) => handleInputChange(e.target.value)}
+            onBlur={handleInputBlur}
+            placeholder="1"
             className="w-16 px-2 py-1 text-xs border rounded"
           />
           <span className="text-xs">%</span>
@@ -556,8 +656,8 @@ export const TradingJournal: React.FC = () => {
 
     return (
       <div className="flex items-center space-x-2">
-        <div className="relative w-10 h-10">
-          <svg className="w-10 h-10 transform -rotate-90" viewBox="0 0 40 40">
+        <div className="relative w-12 h-12">
+          <svg className="w-12 h-12 transform -rotate-90" viewBox="0 0 40 40">
             <circle
               cx="20"
               cy="20"
@@ -1261,7 +1361,7 @@ export const TradingJournal: React.FC = () => {
               {winRate.toFixed(1)}%
             </p>
             <p className="text-xs text-gray-600 mt-0.5 font-medium">
-              {winningTrades}W / {losingTrades}L
+              {winningTrades}W / {losingTrades}L / {breakevenTrades}BE
             </p>
           </div>
 
@@ -1373,8 +1473,8 @@ export const TradingJournal: React.FC = () => {
               <col style={{ width: "60px" }} />
               <col style={{ width: "80px" }} />
               <col style={{ width: "70px" }} />
-              <col style={{ width: "100px" }} />
-              <col style={{ width: "50px" }} />
+              <col style={{ width: "80px", minWidth: "80px" }} />
+              <col style={{ width: "70px", minWidth: "70px" }} />
               <col style={{ width: "100px" }} />
               <col style={{ width: "60px" }} />
               <col style={{ width: "80px" }} />
@@ -1419,13 +1519,13 @@ export const TradingJournal: React.FC = () => {
                 </th>
                 <th
                   className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wider border-b border-gray-200"
-                  style={{ width: "100px", minWidth: "100px" }}
+                  style={{ width: "80px", minWidth: "80px" }}
                 >
-                  Qty
+                  Risk Amnt ($)
                 </th>
                 <th
                   className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wider border-b border-gray-200"
-                  style={{ width: "50px", minWidth: "50px" }}
+                  style={{ width: "70px", minWidth: "70px" }}
                 >
                   TF
                 </th>
@@ -1531,8 +1631,8 @@ export const TradingJournal: React.FC = () => {
                   <td className="px-4 py-3">
                     <input
                       type="number"
-                      step="0.00000001"
-                      value={newTrade.quantity}
+                      step="0.01"
+                      value={newTrade.quantity || ""}
                       onChange={(e) =>
                         setNewTrade({
                           ...newTrade,
@@ -1540,6 +1640,7 @@ export const TradingJournal: React.FC = () => {
                         })
                       }
                       disabled={saving}
+                      placeholder="0"
                       className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:opacity-50"
                     />
                   </td>
@@ -1572,7 +1673,7 @@ export const TradingJournal: React.FC = () => {
                     <input
                       type="number"
                       step="0.01"
-                      value={newTrade.rr}
+                      value={newTrade.rr || ""}
                       onChange={(e) =>
                         setNewTrade({
                           ...newTrade,
@@ -1580,6 +1681,7 @@ export const TradingJournal: React.FC = () => {
                         })
                       }
                       disabled={saving}
+                      placeholder="0.00"
                       className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:opacity-50"
                     />
                   </td>
@@ -1649,11 +1751,38 @@ export const TradingJournal: React.FC = () => {
                   <td className="px-4 py-3">
                     <button
                       type="button"
-                      disabled={true}
-                      className="inline-flex items-center justify-center w-8 h-8 text-gray-400 border border-gray-200 rounded-full cursor-not-allowed"
-                      title="Images can be added after trade is saved"
+                      onClick={() => {
+                        console.log("Opening image modal for new trade");
+                        setSelectedTradeId("new-trade"); // Special ID for new trades
+                        setImageModalOpen(true);
+                        // Load temporary images
+                        setBeforeImage(tempBeforeImage);
+                        setDuringImage(tempDuringImage);
+                        setAfterImage(tempAfterImage);
+                        // Reset URL inputs
+                        setBeforeImageUrl("");
+                        setDuringImageUrl("");
+                        setAfterImageUrl("");
+                      }}
+                      disabled={saving}
+                      className={`relative inline-flex items-center justify-center w-8 h-8 disabled:opacity-50 disabled:cursor-not-allowed rounded-full border transition-all duration-200 ${
+                        tempBeforeImage && tempAfterImage
+                          ? "text-blue-600 bg-blue-50 border-blue-300 hover:bg-blue-100"
+                          : tempBeforeImage || tempDuringImage || tempAfterImage
+                          ? "text-red-600 bg-red-50 border-red-300 hover:bg-red-100"
+                          : "text-gray-600 hover:text-blue-600 hover:bg-blue-50 border-gray-200 hover:border-blue-300"
+                      }`}
+                      title="Add images for this trade"
                     >
                       <Camera className="h-4 w-4" />
+                      {/* Indicator dot logic: blue for complete set (before+after), red for incomplete, no dot for none */}
+                      {tempBeforeImage && tempAfterImage ? (
+                        <span className="absolute -top-1 -right-1 w-3 h-3 bg-blue-500 rounded-full border-2 border-white"></span>
+                      ) : tempBeforeImage ||
+                        tempDuringImage ||
+                        tempAfterImage ? (
+                        <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full border-2 border-white"></span>
+                      ) : null}
                     </button>
                   </td>
                   <td className="px-4 py-3">
@@ -1666,7 +1795,12 @@ export const TradingJournal: React.FC = () => {
                         <Check className="h-4 w-4" />
                       </button>
                       <button
-                        onClick={() => setIsAddingNew(false)}
+                        onClick={() => {
+                          setIsAddingNew(false);
+                          setTempBeforeImage(null);
+                          setTempDuringImage(null);
+                          setTempAfterImage(null);
+                        }}
                         disabled={saving}
                         className="inline-flex items-center justify-center w-8 h-8 text-red-600 hover:text-white hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed rounded-full border border-red-200 hover:border-red-600 transition-all duration-200 transform hover:scale-105"
                       >
@@ -1682,12 +1816,21 @@ export const TradingJournal: React.FC = () => {
                 const isEditing = editingTradeId === trade.id;
                 const currentTrade = isEditing ? editingTrade : trade;
 
+                // Determine if trade is in progress (no P&L and no outcome)
+                const isInProgress =
+                  trade.pnl === 0 &&
+                  !trade.is_win &&
+                  !trade.is_loss &&
+                  !trade.is_breakeven;
+
                 return (
                   <tr
                     key={trade.id}
                     className={`hover:bg-gray-50 transition-colors ${
                       isEditing
                         ? "bg-yellow-50 border-l-4 border-yellow-400"
+                        : isInProgress
+                        ? "bg-blue-50 border-l-4 border-blue-200"
                         : ""
                     }`}
                   >
@@ -1771,8 +1914,8 @@ export const TradingJournal: React.FC = () => {
                       {isEditing ? (
                         <input
                           type="number"
-                          step="0.00000001"
-                          value={currentTrade.quantity || 0}
+                          step="0.01"
+                          value={currentTrade.quantity || ""}
                           onChange={(e) =>
                             setEditingTrade({
                               ...editingTrade,
@@ -1780,6 +1923,7 @@ export const TradingJournal: React.FC = () => {
                             })
                           }
                           disabled={saving}
+                          placeholder="0"
                           className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 disabled:opacity-50"
                         />
                       ) : (
@@ -1840,7 +1984,7 @@ export const TradingJournal: React.FC = () => {
                         <input
                           type="number"
                           step="0.01"
-                          value={currentTrade.rr || 0}
+                          value={currentTrade.rr || ""}
                           onChange={(e) =>
                             setEditingTrade({
                               ...editingTrade,
@@ -1848,6 +1992,7 @@ export const TradingJournal: React.FC = () => {
                             })
                           }
                           disabled={saving}
+                          placeholder="0.00"
                           className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 disabled:opacity-50"
                         />
                       ) : (
@@ -1955,29 +2100,38 @@ export const TradingJournal: React.FC = () => {
                           console.log("Opening image modal for trade:", {
                             id: trade.id,
                             before_image_url: trade.before_image_url,
+                            during_image_url: trade.during_image_url,
                             after_image_url: trade.after_image_url,
                           });
                           setSelectedTradeId(trade.id);
                           setImageModalOpen(true);
                           // Load existing images for this trade
                           setBeforeImage(trade.before_image_url);
+                          setDuringImage(trade.during_image_url);
                           setAfterImage(trade.after_image_url);
                           // Reset URL inputs
                           setBeforeImageUrl("");
+                          setDuringImageUrl("");
                           setAfterImageUrl("");
                         }}
                         disabled={saving}
                         className={`relative inline-flex items-center justify-center w-8 h-8 disabled:opacity-50 disabled:cursor-not-allowed rounded-full border transition-all duration-200 ${
-                          trade.before_image_url || trade.after_image_url
+                          trade.before_image_url && trade.after_image_url
                             ? "text-blue-600 bg-blue-50 border-blue-300 hover:bg-blue-100"
+                            : trade.before_image_url ||
+                              trade.during_image_url ||
+                              trade.after_image_url
+                            ? "text-red-600 bg-red-50 border-red-300 hover:bg-red-100"
                             : "text-gray-600 hover:text-blue-600 hover:bg-blue-50 border-gray-200 hover:border-blue-300"
                         }`}
                       >
                         <Camera className="h-4 w-4" />
-                        {/* Indicator dot logic: blue for both images, red for before only, no dot for none */}
+                        {/* Indicator dot logic: blue for complete set (before+after), red for incomplete, no dot for none */}
                         {trade.before_image_url && trade.after_image_url ? (
                           <span className="absolute -top-1 -right-1 w-3 h-3 bg-blue-500 rounded-full border-2 border-white"></span>
-                        ) : trade.before_image_url && !trade.after_image_url ? (
+                        ) : trade.before_image_url ||
+                          trade.during_image_url ||
+                          trade.after_image_url ? (
                           <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full border-2 border-white"></span>
                         ) : null}
                       </button>
@@ -2048,7 +2202,7 @@ export const TradingJournal: React.FC = () => {
       {/* Image Modal */}
       {imageModalOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 !mt-0">
-          <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-xl shadow-xl max-w-6xl w-full max-h-[90vh] overflow-y-auto">
             <div className="p-6 border-b border-gray-200">
               <div className="flex items-center justify-between">
                 <h3 className="text-xl font-bold text-gray-900">
@@ -2058,11 +2212,19 @@ export const TradingJournal: React.FC = () => {
                 </h3>
                 <button
                   onClick={() => {
+                    // If it's a new trade, restore the temporary images
+                    if (selectedTradeId === "new-trade") {
+                      setTempBeforeImage(beforeImage);
+                      setTempDuringImage(duringImage);
+                      setTempAfterImage(afterImage);
+                    }
                     setImageModalOpen(false);
                     setSelectedTradeId(null);
                     setBeforeImage(null);
+                    setDuringImage(null);
                     setAfterImage(null);
                     setBeforeImageUrl("");
+                    setDuringImageUrl("");
                     setAfterImageUrl("");
                   }}
                   className="text-gray-400 hover:text-gray-600 transition-colors"
@@ -2073,7 +2235,7 @@ export const TradingJournal: React.FC = () => {
             </div>
 
             <div className="p-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 {/* Before Image */}
                 <div className="space-y-3">
                   <h4 className="text-lg font-semibold text-gray-800">
@@ -2120,6 +2282,62 @@ export const TradingJournal: React.FC = () => {
                               }
                             }}
                             disabled={!beforeImageUrl.trim() || uploadingImage}
+                            className="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            Add URL
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* During Image */}
+                <div className="space-y-3">
+                  <h4 className="text-lg font-semibold text-gray-800">
+                    During Trade
+                  </h4>
+                  <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-gray-400 transition-colors">
+                    {duringImage ? (
+                      <div className="space-y-3">
+                        <img
+                          src={duringImage}
+                          alt="During trade"
+                          className="w-full h-80 object-cover rounded-lg cursor-pointer hover:opacity-90 transition-opacity"
+                          onClick={() => setFullscreenImage(duringImage)}
+                          title="Click to view full size"
+                        />
+                        <button
+                          onClick={() => setDuringImage(null)}
+                          className="text-red-600 hover:text-red-800 text-sm"
+                        >
+                          Remove Image
+                        </button>
+                      </div>
+                    ) : (
+                      <div>
+                        <Upload className="h-12 w-12 text-gray-400 mx-auto mb-3" />
+                        <p className="text-gray-600 mb-4">
+                          Enter image URL for during screenshot
+                        </p>
+
+                        {/* URL Input */}
+                        <div className="flex space-x-2">
+                          <input
+                            type="url"
+                            value={duringImageUrl}
+                            onChange={(e) => setDuringImageUrl(e.target.value)}
+                            placeholder="https://example.com/image.jpg"
+                            className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          />
+                          <button
+                            onClick={() => {
+                              if (duringImageUrl.trim()) {
+                                setDuringImage(duringImageUrl.trim());
+                                setDuringImageUrl("");
+                              }
+                            }}
+                            disabled={!duringImageUrl.trim() || uploadingImage}
                             className="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             Add URL
@@ -2194,20 +2412,33 @@ export const TradingJournal: React.FC = () => {
                     if (selectedTradeId) {
                       try {
                         setUploadingImage(true);
-                        // Save image URLs to database
-                        await updateTradeImages(
-                          selectedTradeId,
-                          beforeImage,
-                          afterImage
-                        );
-                        // Refresh trades list to show updated data
-                        await fetchTrades();
+
+                        if (selectedTradeId === "new-trade") {
+                          // For new trades, save to temporary state
+                          setTempBeforeImage(beforeImage);
+                          setTempDuringImage(duringImage);
+                          setTempAfterImage(afterImage);
+                          console.log("Temporary images saved for new trade");
+                        } else {
+                          // For existing trades, save to database
+                          await updateTradeImages(
+                            selectedTradeId,
+                            beforeImage,
+                            duringImage,
+                            afterImage
+                          );
+                          // Refresh trades list to show updated data
+                          await fetchTrades();
+                        }
+
                         // Close modal
                         setImageModalOpen(false);
                         setSelectedTradeId(null);
                         setBeforeImage(null);
+                        setDuringImage(null);
                         setAfterImage(null);
                         setBeforeImageUrl("");
+                        setDuringImageUrl("");
                         setAfterImageUrl("");
                       } catch (error) {
                         console.error("Error saving images:", error);
@@ -2220,7 +2451,11 @@ export const TradingJournal: React.FC = () => {
                   disabled={uploadingImage}
                   className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-6 py-2 rounded-lg transition-colors"
                 >
-                  {uploadingImage ? "Saving..." : "Save Images"}
+                  {uploadingImage
+                    ? "Saving..."
+                    : selectedTradeId === "new-trade"
+                    ? "Save Images"
+                    : "Save Images"}
                 </button>
               </div>
             </div>
@@ -2248,6 +2483,113 @@ export const TradingJournal: React.FC = () => {
             <p className="absolute -bottom-8 left-0 text-white text-sm opacity-75">
               Click image or close button to exit
             </p>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {deleteModalOpen && tradeToDeleteInfo && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 !mt-0">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
+            <div className="p-6 border-b border-gray-200">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xl font-bold text-red-600">Delete Trade</h3>
+                <button
+                  onClick={cancelDelete}
+                  className="text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  <X className="h-6 w-6" />
+                </button>
+              </div>
+            </div>
+
+            <div className="p-6">
+              <div className="flex items-center mb-4">
+                <div className="bg-red-100 p-3 rounded-full mr-4">
+                  <svg
+                    className="h-6 w-6 text-red-600"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.5 16.5c-.77.833.192 2.5 1.732 2.5z"
+                    />
+                  </svg>
+                </div>
+                <div>
+                  <h4 className="text-lg font-semibold text-gray-900">
+                    Are you sure?
+                  </h4>
+                  <p className="text-gray-600 text-sm">
+                    This action cannot be undone.
+                  </p>
+                </div>
+              </div>
+
+              <div className="bg-gray-50 rounded-lg p-4 mb-6">
+                <div className="space-y-2">
+                  <div className="flex justify-between">
+                    <span className="text-sm font-medium text-gray-700">
+                      Symbol:
+                    </span>
+                    <span className="text-sm font-bold text-gray-900">
+                      {tradeToDeleteInfo.symbol}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-sm font-medium text-gray-700">
+                      Date:
+                    </span>
+                    <span className="text-sm text-gray-900">
+                      {formatDate(tradeToDeleteInfo.date)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-sm font-medium text-gray-700">
+                      P&L:
+                    </span>
+                    <span
+                      className={`text-sm font-bold ${
+                        tradeToDeleteInfo.pnl >= 0
+                          ? "text-green-600"
+                          : "text-red-600"
+                      }`}
+                    >
+                      {tradeToDeleteInfo.pnl >= 0 ? "+" : ""}
+                      {formatCurrency(tradeToDeleteInfo.pnl)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex space-x-3">
+                <button
+                  onClick={cancelDelete}
+                  disabled={saving}
+                  className="flex-1 px-4 py-2 text-gray-700 bg-gray-100 border border-gray-300 rounded-lg hover:bg-gray-200 transition-colors disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmDelete}
+                  disabled={saving}
+                  className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 flex items-center justify-center"
+                >
+                  {saving ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                      Deleting...
+                    </>
+                  ) : (
+                    "Delete Trade"
+                  )}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

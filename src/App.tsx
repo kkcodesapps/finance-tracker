@@ -29,6 +29,8 @@ import {
   Home,
   Menu,
   X,
+  ChevronRight,
+  ChevronLeft,
 } from "lucide-react";
 import type { User as SupabaseUser } from "@supabase/supabase-js";
 
@@ -36,7 +38,14 @@ import type { User as SupabaseUser } from "@supabase/supabase-js";
 const Sidebar: React.FC<{
   isMobileMenuOpen: boolean;
   setIsMobileMenuOpen: (open: boolean) => void;
-}> = ({ isMobileMenuOpen, setIsMobileMenuOpen }) => {
+  isCollapsed: boolean;
+  setIsCollapsed: (collapsed: boolean) => void;
+}> = ({
+  isMobileMenuOpen,
+  setIsMobileMenuOpen,
+  isCollapsed,
+  setIsCollapsed,
+}) => {
   const location = useLocation();
 
   const navItems = [
@@ -99,20 +108,38 @@ const Sidebar: React.FC<{
   const sidebarContent = (
     <div className="flex flex-col h-full">
       {/* Logo */}
-      <div className="p-6 border-b border-gray-200">
+      <div
+        className={`p-6 border-b border-gray-200 ${isCollapsed ? "px-3" : ""}`}
+      >
         <div className="flex items-center">
           <div className="bg-gradient-to-r from-blue-500 to-indigo-600 p-2 rounded-lg mr-3">
             <TrendingUp className="h-6 w-6 text-white" />
           </div>
-          <div>
-            <h1 className="text-xl font-bold text-gray-900">FinanceTracker</h1>
-            <p className="text-xs text-gray-500">Personal Finance Suite</p>
-          </div>
+          {!isCollapsed && (
+            <div>
+              <h1 className="text-xl font-bold text-gray-900">
+                FinanceTracker
+              </h1>
+              <p className="text-xs text-gray-500">Personal Finance Suite</p>
+            </div>
+          )}
         </div>
+        {/* Toggle button - only show on desktop */}
+        <button
+          onClick={() => setIsCollapsed(!isCollapsed)}
+          className="hidden lg:flex items-center justify-center w-8 h-8 mt-4 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+          title={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+        >
+          {isCollapsed ? (
+            <ChevronRight className="h-4 w-4" />
+          ) : (
+            <ChevronLeft className="h-4 w-4" />
+          )}
+        </button>
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 px-4 py-6 space-y-2">
+      <nav className={`flex-1 py-6 space-y-2 ${isCollapsed ? "px-3" : "px-4"}`}>
         {navItems.map((item) => {
           const Icon = item.icon;
           const active = isActive(item.path);
@@ -126,16 +153,23 @@ const Sidebar: React.FC<{
               <Link
                 to={item.path}
                 onClick={() => setIsMobileMenuOpen(false)}
-                className={`flex items-center px-3 py-3 rounded-lg transition-all duration-200 group ${
+                className={`flex items-center py-3 rounded-lg transition-all duration-200 group ${
                   active || (isDashboard && isDashboardAreaActive())
                     ? isTradingJournal
                       ? "bg-gray-100 text-gray-900 border-l-4 border-gray-800"
                       : "bg-blue-50 text-blue-700 border-l-4 border-blue-500"
                     : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
-                }`}
+                } ${isCollapsed ? "justify-center px-1" : "px-3"}`}
+                title={
+                  isCollapsed
+                    ? `${item.label} - ${item.description}`
+                    : undefined
+                }
               >
                 <Icon
-                  className={`h-5 w-5 mr-3 transition-colors ${
+                  className={`h-5 w-5 ${
+                    isCollapsed ? "" : "mr-3"
+                  } transition-colors ${
                     active || (isDashboard && isDashboardAreaActive())
                       ? isTradingJournal
                         ? "text-gray-800"
@@ -143,26 +177,28 @@ const Sidebar: React.FC<{
                       : "text-gray-400 group-hover:text-gray-600"
                   }`}
                 />
-                <div className="flex-1">
-                  <div
-                    className={`font-medium ${
-                      active || (isDashboard && isDashboardAreaActive())
-                        ? isTradingJournal
-                          ? "text-gray-900"
-                          : "text-blue-900"
-                        : ""
-                    }`}
-                  >
-                    {item.label}
+                {!isCollapsed && (
+                  <div className="flex-1">
+                    <div
+                      className={`font-medium ${
+                        active || (isDashboard && isDashboardAreaActive())
+                          ? isTradingJournal
+                            ? "text-gray-900"
+                            : "text-blue-900"
+                          : ""
+                      }`}
+                    >
+                      {item.label}
+                    </div>
+                    <div className="text-xs text-gray-500 mt-0.5">
+                      {item.description}
+                    </div>
                   </div>
-                  <div className="text-xs text-gray-500 mt-0.5">
-                    {item.description}
-                  </div>
-                </div>
+                )}
               </Link>
 
-              {/* Sub-navigation items - always visible for dashboard */}
-              {hasSubItems && (
+              {/* Sub-navigation items - only show when not collapsed */}
+              {hasSubItems && !isCollapsed && (
                 <div className="ml-4 mt-2 space-y-1">
                   {item.subItems.map((subItem) => {
                     const SubIcon = subItem.icon;
@@ -213,7 +249,11 @@ const Sidebar: React.FC<{
   return (
     <>
       {/* Desktop Sidebar */}
-      <div className="hidden lg:flex lg:flex-col lg:w-64 lg:fixed lg:inset-y-0 lg:bg-white lg:border-r lg:border-gray-200">
+      <div
+        className={`hidden lg:flex lg:flex-col lg:fixed lg:inset-y-0 lg:bg-white lg:border-r lg:border-gray-200 transition-all duration-300 ${
+          isCollapsed ? "lg:w-16" : "lg:w-64"
+        }`}
+      >
         {sidebarContent}
       </div>
 
@@ -249,7 +289,15 @@ const MainContent: React.FC<{
   onDeleteAllData: () => void;
   isMobileMenuOpen: boolean;
   setIsMobileMenuOpen: (open: boolean) => void;
-}> = ({ children, user, onSignOut, onDeleteAllData, setIsMobileMenuOpen }) => {
+  isCollapsed: boolean;
+}> = ({
+  children,
+  user,
+  onSignOut,
+  onDeleteAllData,
+  setIsMobileMenuOpen,
+  isCollapsed,
+}) => {
   const location = useLocation();
 
   const getPageTitle = () => {
@@ -272,7 +320,11 @@ const MainContent: React.FC<{
   };
 
   return (
-    <div className="lg:pl-64 flex flex-col min-h-screen bg-gray-50">
+    <div
+      className={`flex flex-col min-h-screen bg-gray-50 transition-all duration-300 ${
+        isCollapsed ? "lg:pl-16" : "lg:pl-64"
+      }`}
+    >
       {/* Mobile header */}
       <div className="lg:hidden bg-white border-b border-gray-200 px-4 py-4 flex items-center justify-between">
         <button
@@ -342,6 +394,7 @@ function AppContent() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [selectedMonth, setSelectedMonth] = useState<string>("");
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(false);
 
   useEffect(() => {
     // Get initial session
@@ -424,6 +477,8 @@ function AppContent() {
       <Sidebar
         isMobileMenuOpen={isMobileMenuOpen}
         setIsMobileMenuOpen={setIsMobileMenuOpen}
+        isCollapsed={isCollapsed}
+        setIsCollapsed={setIsCollapsed}
       />
 
       <MainContent
@@ -432,6 +487,7 @@ function AppContent() {
         onDeleteAllData={handleDeleteAllData}
         isMobileMenuOpen={isMobileMenuOpen}
         setIsMobileMenuOpen={setIsMobileMenuOpen}
+        isCollapsed={isCollapsed}
       >
         <Routes>
           <Route

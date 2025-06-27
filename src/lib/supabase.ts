@@ -31,6 +31,7 @@ export type Trade = {
   is_loss: boolean | null;
   is_breakeven: boolean | null;
   before_image_url: string | null;
+  during_image_url: string | null;
   after_image_url: string | null;
   created_at: string;
 };
@@ -126,12 +127,14 @@ export const deleteTradeImage = async (imageUrl: string): Promise<void> => {
 export const updateTradeImages = async (
   tradeId: string,
   beforeImageUrl: string | null,
+  duringImageUrl: string | null,
   afterImageUrl: string | null
 ): Promise<void> => {
   const { error } = await supabase
     .from("trades")
     .update({
       before_image_url: beforeImageUrl,
+      during_image_url: duringImageUrl,
       after_image_url: afterImageUrl,
     })
     .eq("id", tradeId);
