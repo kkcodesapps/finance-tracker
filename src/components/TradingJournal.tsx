@@ -59,6 +59,9 @@ export const TradingJournal: React.FC = () => {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
 
+  // Trading settings state
+  const [averageRiskAmount, setAverageRiskAmount] = useState<number>(500);
+
   // Helper function to get local date string
   const getLocalDateString = () => {
     const today = new Date();
@@ -128,6 +131,7 @@ export const TradingJournal: React.FC = () => {
 
   useEffect(() => {
     fetchTrades();
+    fetchTradingSettings();
   }, []);
 
   useEffect(() => {
@@ -883,6 +887,50 @@ export const TradingJournal: React.FC = () => {
       );
     };
 
+    // Function to determine color intensity based on P&L magnitude relative to risk amount
+    const getColorIntensity = (pnl: number) => {
+      const absPnl = Math.abs(pnl);
+      const riskMultiplier = absPnl / averageRiskAmount;
+
+      if (pnl > 0) {
+        // Green shades for profits
+        if (riskMultiplier >= 10) return "bg-green-200"; // Dark green for big wins (10x+ risk)
+        if (riskMultiplier >= 4) return "bg-green-100"; // Medium green for good wins (4-10x risk)
+        if (riskMultiplier >= 1) return "bg-green-50"; // Light green for small wins (1-4x risk)
+        return "bg-green-50/50"; // Very light green for sub-1x wins
+      } else if (pnl < 0) {
+        // Red shades for losses
+        if (riskMultiplier >= 10) return "bg-red-200"; // Dark red for big losses (10x+ risk)
+        if (riskMultiplier >= 4) return "bg-red-100"; // Medium red for significant losses (4-10x risk)
+        if (riskMultiplier >= 1) return "bg-red-50"; // Light red for small losses (1-4x risk)
+        return "bg-red-50/50"; // Very light red for sub-1x losses
+      } else {
+        // Gray for breakeven
+        return "bg-gray-50";
+      }
+    };
+
+    // Function to get text color based on P&L intensity relative to risk amount
+    const getTextColorIntensity = (pnl: number) => {
+      const absPnl = Math.abs(pnl);
+      const riskMultiplier = absPnl / averageRiskAmount;
+
+      if (pnl > 0) {
+        // Green text colors for profits
+        if (riskMultiplier >= 10) return "text-green-900"; // Darker text for dark backgrounds
+        if (riskMultiplier >= 4) return "text-green-800"; // Medium text for medium backgrounds
+        return "text-green-800"; // Standard text for light backgrounds
+      } else if (pnl < 0) {
+        // Red text colors for losses
+        if (riskMultiplier >= 10) return "text-red-900"; // Darker text for dark backgrounds
+        if (riskMultiplier >= 4) return "text-red-800"; // Medium text for medium backgrounds
+        return "text-red-800"; // Standard text for light backgrounds
+      } else {
+        // Gray for breakeven
+        return "text-gray-600";
+      }
+    };
+
     return (
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Calendar */}
@@ -959,12 +1007,8 @@ export const TradingJournal: React.FC = () => {
                     }
                     ${dayData ? "cursor-pointer hover:border-gray-300" : ""}
                     ${
-                      dayData?.pnl !== undefined && dayData.pnl > 0
-                        ? "bg-green-50"
-                        : dayData?.pnl !== undefined && dayData.pnl < 0
-                        ? "bg-red-50"
-                        : dayData?.pnl !== undefined && dayData.pnl === 0
-                        ? "bg-gray-50"
+                      dayData?.pnl !== undefined
+                        ? getColorIntensity(dayData.pnl)
                         : "bg-white"
                     }
                   `}
@@ -996,13 +1040,7 @@ export const TradingJournal: React.FC = () => {
                       <div
                         className={`
                         text-xs font-bold px-2 py-1 rounded
-                        ${
-                          dayData.pnl > 0
-                            ? "text-green-800"
-                            : dayData.pnl < 0
-                            ? "text-red-800"
-                            : "text-gray-600"
-                        }
+                        ${getTextColorIntensity(dayData.pnl)}
                       `}
                       >
                         {dayData.pnl >= 0 ? "+" : ""}$
@@ -1291,6 +1329,33 @@ export const TradingJournal: React.FC = () => {
         )}
       </div>
     );
+  };
+
+  const fetchTradingSettings = async () => {
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data, error } = await supabase
+        .from("trading_settings")
+        .select("average_risk_amount")
+        .eq("user_id", user.id)
+        .single();
+
+      if (error && error.code !== "PGRST116") {
+        // PGRST116 is "not found" error
+        console.error("Error fetching trading settings:", error);
+        return;
+      }
+
+      if (data) {
+        setAverageRiskAmount(data.average_risk_amount);
+      }
+    } catch (error) {
+      console.error("Error fetching trading settings:", error);
+    }
   };
 
   if (loading) {

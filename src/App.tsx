@@ -15,6 +15,7 @@ import { MonthlyDetail } from "./components/MonthlyDetail";
 import { SubscriptionTracker } from "./components/SubscriptionTracker";
 import { RecurringExpenses } from "./components/RecurringExpenses";
 import { TradingJournal } from "./components/TradingJournal";
+import { TradingSettings } from "./components/TradingSettings";
 import { Auth } from "./components/Auth";
 import { supabase } from "./lib/supabase";
 import {
@@ -86,6 +87,14 @@ const Sidebar: React.FC<{
       icon: BarChart3,
       label: "Trading Journal",
       description: "Track your trades",
+      subItems: [
+        {
+          path: "/trading/settings",
+          icon: TrendingUp,
+          label: "Settings",
+          description: "Configure trading preferences",
+        },
+      ],
     },
   ];
 
@@ -530,6 +539,8 @@ function AppContent() {
           <Route path="/recurring" element={<RecurringExpenses />} />
 
           <Route path="/trading" element={<TradingJournal />} />
+
+          <Route path="/trading/settings" element={<TradingSettings />} />
 
           {/* Redirect any unknown routes to home */}
           <Route path="*" element={<Navigate to="/" replace />} />
