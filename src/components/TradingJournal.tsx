@@ -37,6 +37,12 @@ interface NewTrade {
   is_win: boolean | null;
   is_loss: boolean | null;
   is_breakeven: boolean | null;
+  exit_type:
+    | "manual_close"
+    | "take_profit"
+    | "trailing_stop"
+    | "stop_loss"
+    | null;
 }
 
 interface DailyPnL {
@@ -58,6 +64,9 @@ export const TradingJournal: React.FC = () => {
   const [dailyPnL, setDailyPnL] = useState<DailyPnL[]>([]);
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [dailyChartView, setDailyChartView] = useState<
+    "individual" | "cumulative"
+  >("individual");
 
   // Trading settings state
   const [averageRiskAmount, setAverageRiskAmount] = useState<number>(500);
@@ -85,6 +94,7 @@ export const TradingJournal: React.FC = () => {
     is_win: null,
     is_loss: null,
     is_breakeven: null,
+    exit_type: null,
   });
 
   // Image modal state
@@ -323,6 +333,7 @@ export const TradingJournal: React.FC = () => {
         is_win: null,
         is_loss: null,
         is_breakeven: null,
+        exit_type: null,
       });
       setTempBeforeImage(null);
       setTempDuringImage(null);
@@ -370,6 +381,7 @@ export const TradingJournal: React.FC = () => {
         is_win: editingTrade.is_win,
         is_loss: editingTrade.is_loss,
         is_breakeven: editingTrade.is_breakeven,
+        exit_type: editingTrade.exit_type,
       };
 
       console.log("Updating trade with data:", updateData);
@@ -510,15 +522,42 @@ export const TradingJournal: React.FC = () => {
 
   // Calculate summary stats (excluding fees since we removed them)
   const totalPnL = trades.reduce((sum, trade) => sum + trade.pnl, 0);
-  const winningTrades = trades.filter((trade) => trade.pnl > 0).length;
-  const losingTrades = trades.filter((trade) => trade.pnl < 0).length;
-  const breakevenTrades = trades.filter((trade) => trade.pnl === 0).length;
+
+  // Use manual checkboxes if set, otherwise fall back to P&L value
+  const winningTrades = trades.filter((trade) => {
+    if (trade.is_breakeven) return false; // Breakeven checkbox overrides P&L
+    if (trade.is_win !== null) return trade.is_win; // Manual win checkbox
+    return trade.pnl > 0; // Fall back to P&L
+  }).length;
+
+  const losingTrades = trades.filter((trade) => {
+    if (trade.is_breakeven) return false; // Breakeven checkbox overrides P&L
+    if (trade.is_loss !== null) return trade.is_loss; // Manual loss checkbox
+    return trade.pnl < 0; // Fall back to P&L
+  }).length;
+
+  const breakevenTrades = trades.filter((trade) => {
+    if (trade.is_breakeven) return true; // Manual breakeven checkbox takes priority
+    if (trade.is_win || trade.is_loss) return false; // If win/loss is set, not breakeven
+    return trade.pnl === 0; // Fall back to P&L
+  }).length;
+
   const decidedTrades = winningTrades + losingTrades; // Exclude breakeven trades
   const winRate = decidedTrades > 0 ? (winningTrades / decidedTrades) * 100 : 0;
 
   // Calculate average win and loss sizes
-  const winningTradesPnL = trades.filter((trade) => trade.pnl > 0);
-  const losingTradesPnL = trades.filter((trade) => trade.pnl < 0);
+  const winningTradesPnL = trades.filter((trade) => {
+    if (trade.is_breakeven) return false; // Breakeven checkbox overrides P&L
+    if (trade.is_win !== null) return trade.is_win; // Manual win checkbox
+    return trade.pnl > 0; // Fall back to P&L
+  });
+
+  const losingTradesPnL = trades.filter((trade) => {
+    if (trade.is_breakeven) return false; // Breakeven checkbox overrides P&L
+    if (trade.is_loss !== null) return trade.is_loss; // Manual loss checkbox
+    return trade.pnl < 0; // Fall back to P&L
+  });
+
   const avgWinSize =
     winningTradesPnL.length > 0
       ? winningTradesPnL.reduce((sum, trade) => sum + trade.pnl, 0) /
@@ -782,7 +821,7 @@ export const TradingJournal: React.FC = () => {
         </button>
 
         {isOpen && (
-          <div className="absolute z-[9999] w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+          <div className="absolute z-[99999] w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
             {/* Recent symbols */}
             {symbols.length > 0 && (
               <>
@@ -1080,25 +1119,75 @@ export const TradingJournal: React.FC = () => {
                 </p>
               </div>
             </div>
+
+            {/* Tabs for daily view */}
+            {selectedDate && (
+              <div className="mb-6">
+                <div className="border-b border-gray-200">
+                  <nav className="-mb-px flex space-x-8">
+                    <button
+                      onClick={() => setDailyChartView("individual")}
+                      className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                        dailyChartView === "individual"
+                          ? "border-blue-500 text-blue-600"
+                          : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                      }`}
+                    >
+                      Individual Trade P&L
+                    </button>
+                    <button
+                      onClick={() => setDailyChartView("cumulative")}
+                      className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                        dailyChartView === "cumulative"
+                          ? "border-blue-500 text-blue-600"
+                          : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                      }`}
+                    >
+                      Daily Equity Curve
+                    </button>
+                  </nav>
+                </div>
+              </div>
+            )}
+
             <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
               <div className="h-80 w-full">
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart
                     data={
                       selectedDate
-                        ? filteredTrades
-                            .sort(
+                        ? (() => {
+                            const dayTrades = filteredTrades.sort(
                               (a, b) =>
                                 new Date(a.created_at).getTime() -
                                 new Date(b.created_at).getTime()
-                            )
-                            .map((trade, index) => ({
-                              trade: `Trade ${index + 1}`,
-                              time: formatTime(trade.created_at),
-                              pnl: trade.pnl,
-                              symbol: trade.symbol,
-                              side: trade.side,
-                            }))
+                            );
+
+                            if (dailyChartView === "individual") {
+                              // Individual trade P&L view
+                              return dayTrades.map((trade, index) => ({
+                                trade: `Trade ${index + 1}`,
+                                time: formatTime(trade.created_at),
+                                pnl: trade.pnl,
+                                symbol: trade.symbol,
+                                side: trade.side,
+                              }));
+                            } else {
+                              // Cumulative equity view for the day
+                              let runningEquity = 0;
+                              return dayTrades.map((trade, index) => {
+                                runningEquity += trade.pnl;
+                                return {
+                                  trade: `Trade ${index + 1}`,
+                                  time: formatTime(trade.created_at),
+                                  equity: runningEquity,
+                                  pnl: trade.pnl,
+                                  symbol: trade.symbol,
+                                  side: trade.side,
+                                };
+                              });
+                            }
+                          })()
                         : equityData
                     }
                     margin={{ top: 15, right: 25, left: 15, bottom: 15 }}
@@ -1159,7 +1248,9 @@ export const TradingJournal: React.FC = () => {
                       formatter={(value: number, name: string) => [
                         formatCurrency(value),
                         selectedDate
-                          ? "Trade P&L"
+                          ? dailyChartView === "individual"
+                            ? "Trade P&L"
+                            : "Cumulative P&L"
                           : name === "equity"
                           ? "Total Equity"
                           : "Trade P&L",
@@ -1172,7 +1263,13 @@ export const TradingJournal: React.FC = () => {
                     />
                     <Line
                       type="monotone"
-                      dataKey={selectedDate ? "pnl" : "equity"}
+                      dataKey={
+                        selectedDate
+                          ? dailyChartView === "individual"
+                            ? "pnl"
+                            : "equity"
+                          : "equity"
+                      }
                       stroke="url(#equityGradient)"
                       strokeWidth={3}
                       dot={{ fill: "#3b82f6", strokeWidth: 2, r: 4 }}
@@ -1245,7 +1342,7 @@ export const TradingJournal: React.FC = () => {
         </button>
 
         {isOpen && (
-          <div className="absolute z-[9999] w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+          <div className="absolute z-[99999] w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
             {options.map((option) => (
               <button
                 key={option.value}
@@ -1309,7 +1406,7 @@ export const TradingJournal: React.FC = () => {
         </button>
 
         {isOpen && (
-          <div className="absolute z-[9999] w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+          <div className="absolute z-[99999] w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
             {options.map((option) => (
               <button
                 key={option.value}
@@ -1321,6 +1418,106 @@ export const TradingJournal: React.FC = () => {
                 className="w-full px-3 py-2 text-sm text-left hover:bg-gray-50 focus:bg-gray-50 focus:outline-none flex items-center"
               >
                 <span className="inline-flex px-2 py-0.5 text-xs font-medium rounded bg-gray-100 text-gray-800">
+                  {option.label}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // Custom Dropdown Component for Exit Type
+  const ExitTypeDropdown: React.FC<{
+    value:
+      | "manual_close"
+      | "take_profit"
+      | "trailing_stop"
+      | "stop_loss"
+      | null;
+    onChange: (
+      value:
+        | "manual_close"
+        | "take_profit"
+        | "trailing_stop"
+        | "stop_loss"
+        | null
+    ) => void;
+    disabled?: boolean;
+  }> = ({ value, onChange, disabled = false }) => {
+    const [isOpen, setIsOpen] = useState(false);
+
+    const options = [
+      { value: null, label: "Not Set", color: "gray" },
+      { value: "manual_close" as const, label: "Manual Close", color: "blue" },
+      { value: "take_profit" as const, label: "Take Profit", color: "green" },
+      {
+        value: "trailing_stop" as const,
+        label: "Trailing Stop",
+        color: "orange",
+      },
+      { value: "stop_loss" as const, label: "Stop Loss", color: "red" },
+    ];
+
+    const selectedOption = options.find((opt) => opt.value === value);
+
+    const getColorClasses = (color: string) => {
+      switch (color) {
+        case "green":
+          return "bg-green-100 text-green-800 border-green-200";
+        case "red":
+          return "bg-red-100 text-red-800 border-red-200";
+        case "blue":
+          return "bg-blue-100 text-blue-800 border-blue-200";
+        case "orange":
+          return "bg-orange-100 text-orange-800 border-orange-200";
+        default:
+          return "bg-gray-100 text-gray-800 border-gray-200";
+      }
+    };
+
+    return (
+      <div className="relative">
+        <button
+          type="button"
+          onClick={() => setIsOpen(!isOpen)}
+          disabled={disabled}
+          className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:opacity-50 bg-white text-left flex items-center justify-between"
+        >
+          <span
+            className={`inline-flex px-2 py-0.5 text-xs font-medium rounded border ${
+              selectedOption
+                ? getColorClasses(selectedOption.color)
+                : "bg-gray-100 text-gray-800 border-gray-200"
+            }`}
+          >
+            {selectedOption?.label || "Not Set"}
+          </span>
+          <ChevronDown
+            className={`h-4 w-4 transition-transform ${
+              isOpen ? "rotate-180" : ""
+            }`}
+          />
+        </button>
+
+        {isOpen && (
+          <div className="absolute z-[99999] w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+            {options.map((option) => (
+              <button
+                key={option.value || "null"}
+                type="button"
+                onClick={() => {
+                  onChange(option.value);
+                  setIsOpen(false);
+                }}
+                className="w-full px-3 py-2 text-sm text-left hover:bg-gray-50 focus:bg-gray-50 focus:outline-none flex items-center"
+              >
+                <span
+                  className={`inline-flex px-2 py-0.5 text-xs font-medium rounded border ${getColorClasses(
+                    option.color
+                  )}`}
+                >
                   {option.label}
                 </span>
               </button>
@@ -1571,7 +1768,7 @@ export const TradingJournal: React.FC = () => {
         </div>
 
         <div className="overflow-x-auto bg-white relative">
-          <table className="w-full min-w-[1200px] table-fixed">
+          <table className="w-full min-w-[1300px] table-fixed">
             <colgroup>
               <col style={{ width: "80px" }} />
               <col style={{ width: "50px" }} />
@@ -1583,6 +1780,7 @@ export const TradingJournal: React.FC = () => {
               <col style={{ width: "100px" }} />
               <col style={{ width: "60px" }} />
               <col style={{ width: "80px" }} />
+              <col style={{ width: "100px" }} />
               <col style={{ width: "40px" }} />
               <col style={{ width: "40px" }} />
               <col style={{ width: "40px" }} />
@@ -1651,6 +1849,12 @@ export const TradingJournal: React.FC = () => {
                   style={{ width: "80px", minWidth: "80px" }}
                 >
                   Risk %
+                </th>
+                <th
+                  className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wider border-b border-gray-200"
+                  style={{ width: "100px", minWidth: "100px" }}
+                >
+                  Exit Type
                 </th>
                 <th
                   className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wider border-b border-gray-200"
@@ -1800,6 +2004,15 @@ export const TradingJournal: React.FC = () => {
                     />
                   </td>
                   <td className="px-4 py-3">
+                    <ExitTypeDropdown
+                      value={newTrade.exit_type}
+                      onChange={(value) =>
+                        setNewTrade({ ...newTrade, exit_type: value })
+                      }
+                      disabled={saving}
+                    />
+                  </td>
+                  <td className="px-4 py-3">
                     <OutcomeCheckbox
                       checked={newTrade.is_win}
                       type="win"
@@ -1933,7 +2146,7 @@ export const TradingJournal: React.FC = () => {
                     key={trade.id}
                     className={`hover:bg-gray-50 transition-colors ${
                       isEditing
-                        ? "bg-yellow-50 border-l-4 border-yellow-400"
+                        ? "bg-yellow-50 border-l-4 border-yellow-400 relative z-10"
                         : isInProgress
                         ? "bg-blue-50 border-l-4 border-blue-200"
                         : ""
@@ -2120,6 +2333,44 @@ export const TradingJournal: React.FC = () => {
                             : undefined
                         }
                       />
+                    </td>
+                    <td className="px-4 py-3 relative">
+                      {isEditing ? (
+                        <ExitTypeDropdown
+                          value={currentTrade.exit_type || null}
+                          onChange={(value) =>
+                            setEditingTrade({
+                              ...editingTrade,
+                              exit_type: value,
+                            })
+                          }
+                          disabled={saving}
+                        />
+                      ) : (
+                        <span
+                          className={`inline-flex px-2 py-0.5 text-xs font-medium rounded border ${
+                            trade.exit_type === "take_profit"
+                              ? "bg-green-100 text-green-800 border-green-200"
+                              : trade.exit_type === "stop_loss"
+                              ? "bg-red-100 text-red-800 border-red-200"
+                              : trade.exit_type === "manual_close"
+                              ? "bg-blue-100 text-blue-800 border-blue-200"
+                              : trade.exit_type === "trailing_stop"
+                              ? "bg-orange-100 text-orange-800 border-orange-200"
+                              : "bg-gray-100 text-gray-800 border-gray-200"
+                          }`}
+                        >
+                          {trade.exit_type === "manual_close"
+                            ? "Manual Close"
+                            : trade.exit_type === "take_profit"
+                            ? "Take Profit"
+                            : trade.exit_type === "trailing_stop"
+                            ? "Trailing Stop"
+                            : trade.exit_type === "stop_loss"
+                            ? "Stop Loss"
+                            : "Not Set"}
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3 overflow-hidden">
                       <OutcomeCheckbox

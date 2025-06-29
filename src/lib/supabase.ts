@@ -30,6 +30,12 @@ export type Trade = {
   is_win: boolean | null;
   is_loss: boolean | null;
   is_breakeven: boolean | null;
+  exit_type:
+    | "manual_close"
+    | "take_profit"
+    | "trailing_stop"
+    | "stop_loss"
+    | null;
   before_image_url: string | null;
   during_image_url: string | null;
   after_image_url: string | null;
